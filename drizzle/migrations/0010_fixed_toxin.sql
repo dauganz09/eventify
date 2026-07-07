@@ -1,0 +1,1 @@
+ALTER TABLE "backup_settings" ADD COLUMN "docker_container" text;

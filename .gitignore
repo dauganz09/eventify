@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Uploaded contestant photos (local mode)
+/public/uploads/
+
+# Local database dumps
+/backups/
+
+# Claude Code local settings
+.claude/settings.local.json

@@ -1,26 +1,207 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(0.99 0.01 95);
+  --foreground: oklch(0.18 0.03 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.03 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 255);
+  --primary: oklch(0.48 0.18 255);
+  --primary-foreground: oklch(0.99 0.01 95);
+  --secondary: oklch(0.94 0.02 255);
+  --secondary-foreground: oklch(0.22 0.04 255);
+  --muted: oklch(0.95 0.02 255);
+  --muted-foreground: oklch(0.48 0.03 255);
+  --accent: oklch(0.92 0.05 255);
+  --accent-foreground: oklch(0.2 0.04 255);
+  --destructive: oklch(0.58 0.22 28);
+  --destructive-foreground: oklch(0.99 0.01 95);
+  --border: oklch(0.88 0.02 255);
+  --input: oklch(0.88 0.02 255);
+  --ring: oklch(0.55 0.18 255);
+  --chart-1: oklch(0.55 0.18 255);
+  --chart-2: oklch(0.48 0.14 255);
+  --chart-3: oklch(0.62 0.12 255);
+  --chart-4: oklch(0.72 0.1 255);
+  --chart-5: oklch(0.82 0.08 255);
+  --radius: 0.625rem;
+  --shadow-color: 255 25% 18%;
+  --sidebar: oklch(0.985 0.012 255);
+  --sidebar-foreground: oklch(0.18 0.03 255);
+  --sidebar-primary: oklch(0.48 0.18 255);
+  --sidebar-primary-foreground: oklch(0.99 0.01 95);
+  --sidebar-accent: oklch(0.92 0.05 255);
+  --sidebar-accent-foreground: oklch(0.2 0.04 255);
+  --sidebar-border: oklch(0.88 0.02 255);
+  --sidebar-ring: oklch(0.55 0.18 255);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-display);
+  --font-display: var(--font-display);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Dark mode is class-driven via next-themes (`enableSystem` adds `.dark`
+   automatically for users whose OS prefers dark), so we intentionally do
+   NOT use an `@media (prefers-color-scheme: dark)` block here — it would
+   override an explicit light/dark choice on dark-default devices. */
+
+.dark {
+  --background: oklch(0.16 0.03 255);
+  --foreground: oklch(0.96 0.01 95);
+  --card: oklch(0.2 0.03 255);
+  --card-foreground: oklch(0.96 0.01 95);
+  --popover: oklch(0.2 0.03 255);
+  --popover-foreground: oklch(0.96 0.01 95);
+  --primary: oklch(0.68 0.16 255);
+  --primary-foreground: oklch(0.16 0.03 255);
+  --secondary: oklch(0.26 0.03 255);
+  --secondary-foreground: oklch(0.96 0.01 95);
+  --muted: oklch(0.24 0.03 255);
+  --muted-foreground: oklch(0.74 0.03 255);
+  --accent: oklch(0.28 0.05 255);
+  --accent-foreground: oklch(0.96 0.01 95);
+  --destructive: oklch(0.62 0.22 28);
+  --destructive-foreground: oklch(0.96 0.01 95);
+  --border: oklch(0.3 0.03 255);
+  --input: oklch(0.3 0.03 255);
+  --ring: oklch(0.68 0.16 255);
+  --chart-1: oklch(0.68 0.16 255);
+  --chart-2: oklch(0.6 0.14 255);
+  --chart-3: oklch(0.7 0.12 255);
+  --chart-4: oklch(0.76 0.1 255);
+  --chart-5: oklch(0.84 0.08 255);
+  --shadow-color: 255 50% 3%;
+  --sidebar: oklch(0.18 0.03 255);
+  --sidebar-foreground: oklch(0.96 0.01 95);
+  --sidebar-primary: oklch(0.68 0.16 255);
+  --sidebar-primary-foreground: oklch(0.16 0.03 255);
+  --sidebar-accent: oklch(0.28 0.05 255);
+  --sidebar-accent-foreground: oklch(0.96 0.01 95);
+  --sidebar-border: oklch(0.3 0.03 255);
+  --sidebar-ring: oklch(0.68 0.16 255);
+}
+
+/* Printable documents (results reports, scoresheets) always render in the
+   light "paper" design, regardless of the app's dark-mode setting — both in
+   the on-screen preview and in the actual printed output. Rather than
+   fighting the `.dark` class on <html> via @media print (which depends on
+   the browser correctly re-evaluating the cascade at print time, and proved
+   unreliable), this class is applied directly on the document's wrapper
+   element. CSS custom properties resolve from the nearest declaring
+   ancestor, so anything inside `.print-document` gets these light values
+   regardless of `.dark` further up the tree. */
+.print-document {
+  --background: oklch(0.99 0.01 95);
+  --foreground: oklch(0.18 0.03 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.03 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 255);
+  --primary: oklch(0.48 0.18 255);
+  --primary-foreground: oklch(0.99 0.01 95);
+  --secondary: oklch(0.94 0.02 255);
+  --secondary-foreground: oklch(0.22 0.04 255);
+  --muted: oklch(0.95 0.02 255);
+  --muted-foreground: oklch(0.48 0.03 255);
+  --accent: oklch(0.92 0.05 255);
+  --accent-foreground: oklch(0.2 0.04 255);
+  --destructive: oklch(0.58 0.22 28);
+  --destructive-foreground: oklch(0.99 0.01 95);
+  --border: oklch(0.88 0.02 255);
+  --input: oklch(0.88 0.02 255);
+  --ring: oklch(0.55 0.18 255);
+}
+
+/* Belt-and-suspenders: also drop the page-level background tint when
+   actually printing, in case future printable surfaces sit outside
+   `.print-document`. */
+@media print {
+  body {
+    background-image: none;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+    /* Two very faint radial tints in the brand blue so large empty surfaces
+       feel intentional rather than a flat template. */
+    background-image:
+      radial-gradient(at 100% 0%, oklch(0.48 0.18 255 / 0.035) 0px, transparent 50%),
+      radial-gradient(at 0% 100%, oklch(0.55 0.18 255 / 0.025) 0px, transparent 45%);
+    background-attachment: fixed;
+  }
+  html {
+    @apply font-sans;
+    scroll-behavior: smooth;
+  }
+  /* Editorial serif for page titles and section headers — the single
+     biggest departure from the stock dashboard look. Card titles (h3) stay
+     in the sans UI font so dense surfaces don't feel heavy. */
+  h1,
+  h2 {
+    font-family: var(--font-display), Georgia, serif;
+    letter-spacing: -0.015em;
+  }
+}
+
+/* A touch of layered depth on cards so surfaces feel intentional rather
+   than flat boxes. Kept very subtle and theme-aware via --shadow-color. */
+@layer components {
+  [data-slot="card"] {
+    box-shadow:
+      0 1px 2px -1px hsl(var(--shadow-color) / 0.08),
+      0 2px 6px -2px hsl(var(--shadow-color) / 0.06);
+  }
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "round_groups" ADD COLUMN "carry_over_weight" integer DEFAULT 100 NOT NULL;
