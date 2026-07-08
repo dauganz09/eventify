@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { db } from "@/db";
 import {
   aggregateResults,
@@ -538,6 +538,14 @@ export async function getEventTabulatorDetail(params: {
   organizationId: string;
   eventId: string;
   focusSetId?: string | null;
+  /**
+   * Live snapshot mode: load score row values only for these sets. Pair with
+   * `submissionCountByRound` / `submissionCountByJudge` so completion widgets
+   * stay accurate without scanning every score in the event.
+   */
+  scoreRoundFilter?: string[];
+  submissionCountByRound?: Record<string, number>;
+  submissionCountByJudge?: Record<string, number>;
 }): Promise<EventTabulatorDetail> {
   const { database, organizationId, eventId } = params;
 
@@ -692,7 +700,15 @@ export async function getEventTabulatorDetail(params: {
     return Number(criterion?.weight ?? 100);
   }
 
-  // All submitted score rows for the event (one pass, grouped in JS).
+  // Submitted score rows — optionally scoped to specific sets for live snapshots.
+  const scoreConditions = [
+    eq(scoreRecords.eventId, eventId),
+    eq(scoreRecords.status, "submitted"),
+  ];
+  if (params.scoreRoundFilter && params.scoreRoundFilter.length > 0) {
+    scoreConditions.push(inArray(scoreRecords.roundId, params.scoreRoundFilter));
+  }
+
   const scoreRows = await database
     .select({
       roundId: scoreRecords.roundId,
@@ -702,14 +718,30 @@ export async function getEventTabulatorDetail(params: {
       value: scoreRecords.value,
     })
     .from(scoreRecords)
-    .where(and(eq(scoreRecords.eventId, eventId), eq(scoreRecords.status, "submitted")));
+    .where(and(...scoreConditions));
 
   const submittedBySet = new Map<string, number>();
   const submittedByJudge = new Map<string, number>();
   const scoresBySet = new Map<string, SubmittedScore[]>();
+
+  if (params.submissionCountByRound) {
+    for (const [roundId, count] of Object.entries(params.submissionCountByRound)) {
+      submittedBySet.set(roundId, count);
+    }
+  }
+  if (params.submissionCountByJudge) {
+    for (const [judgeId, count] of Object.entries(params.submissionCountByJudge)) {
+      submittedByJudge.set(judgeId, count);
+    }
+  }
+
   for (const row of scoreRows) {
-    submittedBySet.set(row.roundId, (submittedBySet.get(row.roundId) ?? 0) + 1);
-    submittedByJudge.set(row.judgeId, (submittedByJudge.get(row.judgeId) ?? 0) + 1);
+    if (!params.submissionCountByRound) {
+      submittedBySet.set(row.roundId, (submittedBySet.get(row.roundId) ?? 0) + 1);
+    }
+    if (!params.submissionCountByJudge) {
+      submittedByJudge.set(row.judgeId, (submittedByJudge.get(row.judgeId) ?? 0) + 1);
+    }
     if (row.value !== null) {
       const bucket = scoresBySet.get(row.roundId) ?? [];
       bucket.push({

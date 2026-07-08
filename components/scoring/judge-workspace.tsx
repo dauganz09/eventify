@@ -123,6 +123,25 @@ function criterionRange(criterion: WorkspaceCriterion) {
   return { min, max, step };
 }
 
+function formatScoreTotal(value: number) {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function criterionScoreTotals(
+  criteria: WorkspaceCriterion[],
+  values: Record<string, number>,
+) {
+  let current = 0;
+  let max = 0;
+  for (const criterion of criteria) {
+    const { min, max: criterionMax } = criterionRange(criterion);
+    current += values[criterion.id] ?? min;
+    max += criterionMax;
+  }
+  return { current, max };
+}
+
 // Discrete values between min and max for the dropdown input mode.
 // Capped so an absurd range/step can't produce thousands of options.
 function buildOptions(min: number, max: number, step: number) {
@@ -404,8 +423,9 @@ export function JudgeWorkspace({
           clientCreatedAt,
           operation: "submitted",
         };
-        await outbox.enqueue(payload);
+        await outbox.enqueue(payload, { sync: false });
       }
+      await outbox.syncPending();
       // Persist submitted values locally so re-opening the card shows them.
       setLocalScores((prev) => {
         const updated = [...prev];
@@ -1133,6 +1153,11 @@ function ScoringDialog({
   const [values, setValues] = useState<Record<string, number>>(initialValues);
   const [phase, setPhase] = useState<"score" | "confirm">("score");
   const [submitting, setSubmitting] = useState(false);
+  const showCriteriaTotals = criteria.length > 1;
+  const scoreTotals = useMemo(
+    () => criterionScoreTotals(criteria, values),
+    [criteria, values],
+  );
 
   async function confirmSubmit() {
     setSubmitting(true);
@@ -1171,6 +1196,22 @@ function ScoringDialog({
             <p className="text-sm text-muted-foreground">
               Contestant #{contestant.displayNumber}
             </p>
+          )}
+          {showCriteriaTotals && (
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-sm">
+              <p className="text-muted-foreground">
+                Your total:{" "}
+                <span className="text-base font-bold tabular-nums text-primary">
+                  {formatScoreTotal(scoreTotals.current)}
+                </span>
+              </p>
+              <p className="text-muted-foreground">
+                Max:{" "}
+                <span className="font-semibold tabular-nums">
+                  {formatScoreTotal(scoreTotals.max)}
+                </span>
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -1359,6 +1400,18 @@ function ScoringDialog({
                 </span>
               </div>
             ))}
+            {showCriteriaTotals && (
+              <div className="flex items-center justify-between rounded-lg border-2 border-primary/30 bg-primary/5 px-4 py-3">
+                <span className="font-semibold">Total</span>
+                <span className="text-lg font-bold tabular-nums text-primary">
+                  {formatScoreTotal(scoreTotals.current)}
+                  <span className="text-sm font-medium text-muted-foreground">
+                    {" "}
+                    / {formatScoreTotal(scoreTotals.max)}
+                  </span>
+                </span>
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 flex-row gap-3 border-t bg-muted/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <Button

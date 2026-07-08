@@ -3,10 +3,8 @@ import { notFound } from "next/navigation";
 import {
   ArrowLeft,
   BarChart3,
-  CheckCircle2,
   Layers,
   LockOpen,
-  Power,
   Printer,
   Projector,
   RefreshCw,
@@ -18,7 +16,6 @@ import { EventLogo } from "@/components/events/event-logo";
 import { JudgesReminderTable } from "@/components/scoring/judges-reminder-table";
 import { NewTabLink } from "@/components/scoring/new-tab-link";
 import { ManualScorePanel } from "@/components/scoring/manual-score-panel";
-import { FinishRoundDialog } from "@/components/scoring/finish-round-dialog";
 import { db } from "@/db";
 import { judges, rounds, unlockRequests } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -30,11 +27,12 @@ import {
   approveUnlockRequestAction,
   recalculateResultsAction,
   rejectUnlockRequestAction,
-  setRoundStatusAction,
-  setSetStatusAction,
 } from "@/app/(dashboard)/tabulator/actions";
 import { TabulatorScores } from "@/components/scoring/tabulator-scores";
 import { TabulatorRealtime } from "@/components/scoring/tabulator-realtime";
+import { TabulatorLiveProvider } from "@/components/scoring/tabulator-live-context";
+import { TabulatorRoundsSection } from "@/components/scoring/tabulator-rounds-section";
+import { toTabulatorLiveSnapshot } from "@/lib/scoring/tabulator-snapshot-service";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -43,15 +41,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import type { SetSummary } from "@/lib/scoring/tabulator-service";
-
 export default async function TabulatorEventPage({
   params,
   searchParams,
@@ -115,10 +110,15 @@ export default async function TabulatorEventPage({
     );
 
   return (
-    <div className="grid gap-6">
-      {/* Subscribes to the event SSE channel; refreshes this server component
-          when scores or the run-of-show change. */}
+    <>
+      {/* Outside the provider so snapshot state updates never recreate SSE. */}
       <TabulatorRealtime eventId={eventId} />
+      <TabulatorLiveProvider
+        eventId={eventId}
+        focusSetId={detail.focusSetId}
+        initialSnapshot={toTabulatorLiveSnapshot(detail)}
+      >
+      <div className="grid gap-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <Link
@@ -412,89 +412,14 @@ export default async function TabulatorEventPage({
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          {detail.groups.length === 0 && detail.ungroupedSets.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No rounds or sets configured for this event yet.
-            </p>
-          ) : (
-            <>
-              {detail.groups.map((group) => (
-                <div key={group.id} className="rounded-lg border border-border">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{group.name}</span>
-                      <StatusBadge status={group.status} />
-                      {group.sets.some((s) => s.carryOver) && (
-                        <Badge variant="secondary">Carry-over</Badge>
-                      )}
-                    </div>
-                    {canAdjust && (
-                      <LifecycleControls
-                        action={setRoundStatusAction}
-                        idName="groupId"
-                        id={group.id}
-                        status={group.status}
-                        label="round"
-                        canActivate={!anyRoundActive}
-                        finishSlot={
-                          group.status === "active" ? (
-                            <FinishRoundDialog
-                              groupId={group.id}
-                              groupName={group.name}
-                              sets={group.sets.map((s) => ({ id: s.id, name: s.name }))}
-                              carryOverScores={group.carryOver}
-                              trigger={
-                                <button
-                                  type="button"
-                                  className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
-                                >
-                                  <CheckCircle2 className="size-4" />
-                                  Finish round
-                                </button>
-                              }
-                            />
-                          ) : undefined
-                        }
-                      />
-                    )}
-                  </div>
-                  <div className="grid gap-2 p-3">
-                    {group.sets.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No sets in this round.</p>
-                    ) : (
-                      group.sets.map((setItem) => (
-                        <SetRow
-                          key={setItem.id}
-                          set={setItem}
-                          canAdjust={canAdjust}
-                          canActivate={
-                            !anySetActive &&
-                            (activeGroupId === null || activeGroupId === setItem.groupId)
-                          }
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {detail.ungroupedSets.length > 0 && (
-                <div className="grid gap-2">
-                  <p className="text-sm font-medium text-muted-foreground">
-                    Ungrouped sets
-                  </p>
-                  {detail.ungroupedSets.map((setItem) => (
-                    <SetRow
-                      key={setItem.id}
-                      set={setItem}
-                      canAdjust={canAdjust}
-                      canActivate={!anySetActive && !anyRoundActive}
-                    />
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+          <TabulatorRoundsSection
+            groups={detail.groups}
+            ungroupedSets={detail.ungroupedSets}
+            canAdjust={canAdjust}
+            anyRoundActive={anyRoundActive}
+            anySetActive={anySetActive}
+            activeGroupId={activeGroupId}
+          />
         </CardContent>
       </Card>
 
@@ -587,139 +512,7 @@ export default async function TabulatorEventPage({
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SetRow({
-  set,
-  canAdjust,
-  canActivate,
-}: {
-  set: SetSummary;
-  canAdjust: boolean;
-  canActivate: boolean;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border px-3 py-2">
-      <span className="font-medium">{set.name}</span>
-      {set.isManualEntry && (
-        <Badge className="bg-primary/10 text-primary">Manual entry</Badge>
-      )}
-      <StatusBadge status={set.status} />
-      {set.carryOver && set.status === "finished" && (
-        <Badge variant="secondary">Carries forward</Badge>
-      )}
-
-      {/* Compact completion indicator */}
-      <div className="ml-auto flex items-center gap-2">
-        <Progress className="h-1.5 w-24" value={set.completionPct} />
-        <span className="w-24 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-          {set.submitted}/{set.expected} · {set.completionPct}%
-        </span>
-      </div>
-
-      {canAdjust && (
-        <LifecycleControls
-          action={setSetStatusAction}
-          idName="setId"
-          id={set.id}
-          status={set.status}
-          label="set"
-          canActivate={canActivate}
-        />
-      )}
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: "idle" | "active" | "finished" }) {
-  if (status === "active") return <Badge variant="success">Active</Badge>;
-  if (status === "finished") return <Badge variant="default">Finished</Badge>;
-  return <Badge variant="secondary">Inactive</Badge>;
-}
-
-/**
- * Activate / Deactivate / Finish buttons for a round group or set.
- * Each button posts a target status to the relevant server action.
- */
-const LIFECYCLE_BTN =
-  "inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50";
-
-function StatusForm({
-  action,
-  idName,
-  id,
-  target,
-  children,
-  disabled,
-  title,
-}: {
-  action: (formData: FormData) => void | Promise<void>;
-  idName: "groupId" | "setId";
-  id: string;
-  target: "active" | "idle" | "finished";
-  children: React.ReactNode;
-  disabled?: boolean;
-  title?: string;
-}) {
-  return (
-    <form action={action}>
-      <input type="hidden" name={idName} value={id} />
-      <input type="hidden" name="status" value={target} />
-      <button type="submit" className={LIFECYCLE_BTN} disabled={disabled} title={title}>
-        {children}
-      </button>
-    </form>
-  );
-}
-
-function LifecycleControls({
-  action,
-  idName,
-  id,
-  status,
-  label,
-  canActivate,
-  finishSlot,
-}: {
-  action: (formData: FormData) => void | Promise<void>;
-  idName: "groupId" | "setId";
-  id: string;
-  status: "idle" | "active" | "finished";
-  label: string;
-  canActivate: boolean;
-  /** Replaces the default "Finish" button — used so groups can open the
-   *  carry-over modal instead of submitting a plain status form. */
-  finishSlot?: React.ReactNode;
-}) {
-  if (status === "active") {
-    return (
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusForm action={action} idName={idName} id={id} target="idle">
-          <Power className="size-4" />
-          Deactivate {label}
-        </StatusForm>
-        {finishSlot ?? (
-          <StatusForm action={action} idName={idName} id={id} target="finished">
-            <CheckCircle2 className="size-4" />
-            Finish {label}
-          </StatusForm>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <StatusForm
-      action={action}
-      idName={idName}
-      id={id}
-      target="active"
-      disabled={!canActivate}
-      title={canActivate ? undefined : `Deactivate or finish the active ${label} first`}
-    >
-      <Power className="size-4" />
-      {status === "finished" ? `Reactivate ${label}` : `Activate ${label}`}
-    </StatusForm>
+      </TabulatorLiveProvider>
+    </>
   );
 }

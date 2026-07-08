@@ -16,16 +16,20 @@ export const judgeSessionCookieOptions = {
 export interface JudgeSessionData {
   judgeId: string;
   eventId: string;
+  organizationId: string;
 }
 
 export async function createJudgeSession(
   database: typeof DbType,
   judgeId: string,
   eventId: string,
+  organizationId: string,
 ): Promise<string> {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + SESSION_DURATION_SECONDS * 1000);
-  await database.insert(judgeSessions).values({ token, judgeId, eventId, expiresAt });
+  await database
+    .insert(judgeSessions)
+    .values({ token, judgeId, eventId, organizationId, expiresAt });
   return token;
 }
 
@@ -35,7 +39,11 @@ export async function getJudgeSession(
 ): Promise<JudgeSessionData | null> {
   const now = new Date();
   const [row] = await database
-    .select({ judgeId: judgeSessions.judgeId, eventId: judgeSessions.eventId })
+    .select({
+      judgeId: judgeSessions.judgeId,
+      eventId: judgeSessions.eventId,
+      organizationId: judgeSessions.organizationId,
+    })
     .from(judgeSessions)
     .where(and(eq(judgeSessions.token, token), gt(judgeSessions.expiresAt, now)))
     .limit(1);
