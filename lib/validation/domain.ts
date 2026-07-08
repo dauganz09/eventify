@@ -138,8 +138,12 @@ export const judgeAssignmentSchema = z.object({
   judgeId: idSchema,
   /** Set-level scope (legacy granularity). */
   roundId: idSchema.optional(),
-  /** Round-level scope: the judge scores every set inside this round group. */
-  roundGroupId: idSchema.optional(),
+  /**
+   * Round-level scope: the judge scores every set inside these round groups.
+   * Empty array = event-wide (the judge scores everything). One assignment row
+   * is written per group id.
+   */
+  roundGroupIds: z.array(idSchema).default([]),
 });
 
 export const scoringRuleUpsertSchema = z.object({

@@ -120,9 +120,12 @@ export async function assignJudge(params: {
   const input = judgeAssignmentSchema.parse(params.input);
   await assertEventOwnership(params.database, input.eventId, params.organizationId);
 
-  // The builder form manages ONE scope per judge (a round, a set, or
-  // event-wide), so saving replaces any previous scope instead of silently
-  // accumulating rows.
+  // The builder form owns the FULL set of scopes for a judge (one or more
+  // rounds, or event-wide), so saving replaces any previous scopes rather than
+  // accumulating rows. An empty roundGroupIds list = event-wide (one row with
+  // both scopes null).
+  const uniqueGroupIds = [...new Set(input.roundGroupIds)];
+
   await params.database
     .delete(judgeAssignments)
     .where(
@@ -132,16 +135,24 @@ export async function assignJudge(params: {
       ),
     );
 
-  const [assignment] = await params.database
+  const rows =
+    uniqueGroupIds.length > 0
+      ? uniqueGroupIds.map((roundGroupId) => ({
+          eventId: input.eventId,
+          judgeId: input.judgeId,
+          roundGroupId,
+        }))
+      : [
+          {
+            eventId: input.eventId,
+            judgeId: input.judgeId,
+            roundId: input.roundId,
+          },
+        ];
+
+  return params.database
     .insert(judgeAssignments)
-    .values({
-      eventId: input.eventId,
-      judgeId: input.judgeId,
-      roundId: input.roundId,
-      roundGroupId: input.roundGroupId,
-    })
+    .values(rows)
     .onConflictDoNothing()
     .returning();
-
-  return assignment ?? null;
 }

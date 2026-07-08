@@ -387,7 +387,12 @@ export async function saveJudgeAction(eventId: string, formData: FormData) {
     },
   });
 
-  const roundGroupId = formValue(formData, "roundGroupId");
+  // A judge can be assigned to one or more rounds; the form submits a
+  // "roundGroupId" value per selected round. No values = event-wide.
+  const roundGroupIds = formData
+    .getAll("roundGroupId")
+    .map((v) => String(v))
+    .filter((v) => v.length > 0);
 
   if (judge) {
     await assignJudge({
@@ -396,7 +401,7 @@ export async function saveJudgeAction(eventId: string, formData: FormData) {
       input: {
         eventId,
         judgeId: judge.id,
-        roundGroupId: roundGroupId ?? undefined,
+        roundGroupIds,
       },
     });
   }
