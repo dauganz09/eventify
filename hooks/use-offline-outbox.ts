@@ -14,6 +14,54 @@ import type { ScoreOperationInput } from "@/lib/validation/domain";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { randomUUID } from "@/lib/utils";
 
+interface BatchItemResult {
+  idempotencyKey: string;
+  status?: "synced" | "conflict" | "locked";
+  message?: string;
+  error?: string;
+}
+
+function lockRejected(response: Response, result: BatchItemResult | Record<string, unknown>) {
+  const message = String(result?.message ?? result?.error ?? "");
+  return (
+    response.status === 423 ||
+    result?.status === "locked" ||
+    (response.status === 409 && /lock/i.test(message))
+  );
+}
+
+async function applySyncResult(
+  operation: OutboxOperation,
+  response: Response,
+  result: BatchItemResult | Record<string, unknown>,
+): Promise<{ hadError: boolean; errorMessage: string | null }> {
+  if (lockRejected(response, result)) {
+    await deleteOperation(operation.localId);
+    return { hadError: false, errorMessage: null };
+  }
+
+  const isConflict = !response.ok || result.status === "conflict";
+  const serverMessage: string | undefined = !response.ok
+    ? String(result.message ?? result.error ?? `Server rejected score (${response.status})`)
+    : undefined;
+
+  await updateOperation({
+    ...operation,
+    status: isConflict ? "conflict" : "synced",
+    lastError: serverMessage,
+    updatedAt: new Date().toISOString(),
+  });
+
+  if (isConflict) {
+    return {
+      hadError: true,
+      errorMessage: serverMessage ?? "Score was rejected by the server.",
+    };
+  }
+
+  return { hadError: false, errorMessage: null };
+}
+
 export function useOfflineOutbox() {
   const { isOnline } = useNetworkStatus();
   const [pendingCount, setPendingCount] = useState(0);
@@ -31,7 +79,6 @@ export function useOfflineOutbox() {
     setConflictCount(conflicts.length);
   }, []);
 
-  // Keep refreshPendingCount as an alias so callers don't break.
   const refreshPendingCount = refreshCounts;
 
   const syncPending = useCallback(async () => {
@@ -43,78 +90,122 @@ export function useOfflineOutbox() {
 
     setIsSyncing(true);
     let hadError = false;
+    let lastError: string | null = null;
+
+    const syncingOperations = pendingOperations.map((operation) => ({
+      ...operation,
+      status: "syncing" as const,
+      updatedAt: new Date().toISOString(),
+    }));
 
     try {
-    for (const operation of pendingOperations) {
-      const syncingOperation: OutboxOperation = {
-        ...operation,
-        status: "syncing",
-        updatedAt: new Date().toISOString(),
-      };
-      await updateOperation(syncingOperation);
+      for (const operation of syncingOperations) {
+        await updateOperation(operation);
+      }
 
       try {
-        const response = await fetch("/api/sync/score-operation", {
+        const response = await fetch("/api/sync/score-batch", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(operation.payload),
+          body: JSON.stringify({
+            operations: pendingOperations.map((operation) => operation.payload),
+          }),
         });
-        const result = await response.json();
+        const payload = (await response.json()) as {
+          results?: BatchItemResult[];
+          blockedIdempotencyKeys?: string[];
+          message?: string;
+          error?: string;
+          status?: string;
+        };
 
-        // A set that is locked (409 "Round is locked.") or already finalized by
-        // this judge (423 status:"locked") can't accept the write — but the
-        // persisted score stands, so this is not data loss. Discard the op
-        // instead of flagging a permanent "score not saved — contact tabulator".
-        const message = String(result?.message ?? result?.error ?? "");
-        const lockRejected =
-          response.status === 423 ||
-          result?.status === "locked" ||
-          (response.status === 409 && /lock/i.test(message));
-        if (lockRejected) {
-          await deleteOperation(operation.localId);
-          continue;
-        }
+        if (lockRejected(response, payload)) {
+          const blockedKeys = new Set(payload.blockedIdempotencyKeys ?? []);
+          for (const operation of pendingOperations) {
+            if (
+              blockedKeys.size === 0 ||
+              blockedKeys.has(operation.idempotencyKey)
+            ) {
+              await deleteOperation(operation.localId);
+              continue;
+            }
 
-        const isConflict = !response.ok || result.status === "conflict";
-        // Prefer result.message, then result.error, then a generic status string.
-        const serverMessage: string | undefined = !response.ok
-          ? (result.message ?? result.error ?? `Server rejected score (${response.status})`)
-          : undefined;
-
-        await updateOperation({
-          ...operation,
-          status: isConflict ? "conflict" : "synced",
-          lastError: serverMessage,
-          updatedAt: new Date().toISOString(),
-        });
-
-        if (isConflict) {
+            await updateOperation({
+              ...operation,
+              status: "pending",
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } else if (!response.ok || !Array.isArray(payload.results)) {
           hadError = true;
-          setLastSyncError(serverMessage ?? "Score was rejected by the server.");
+          lastError = payload.message ?? payload.error ?? "Sync failed.";
+          for (const operation of pendingOperations) {
+            await updateOperation({
+              ...operation,
+              status: "pending",
+              retryCount: operation.retryCount + 1,
+              lastError: lastError,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } else {
+          const resultsByKey = new Map(
+            payload.results.map((result) => [result.idempotencyKey, result]),
+          );
+
+          for (const operation of pendingOperations) {
+            const result = resultsByKey.get(operation.idempotencyKey);
+            if (!result) {
+              await updateOperation({
+                ...operation,
+                status: "pending",
+                retryCount: operation.retryCount + 1,
+                lastError: "Server did not return a result for this score.",
+                updatedAt: new Date().toISOString(),
+              });
+              hadError = true;
+              lastError = "Server did not return a result for this score.";
+              continue;
+            }
+
+            const syntheticResponse = {
+              ok: result.status === "synced",
+              status: result.status === "conflict" ? 409 : 200,
+            } as Response;
+
+            const outcome = await applySyncResult(operation, syntheticResponse, result);
+            if (outcome.hadError) {
+              hadError = true;
+              lastError = outcome.errorMessage;
+            }
+          }
         }
       } catch (error) {
-        await updateOperation({
-          ...operation,
-          status: "pending",
-          retryCount: operation.retryCount + 1,
-          lastError: error instanceof Error ? error.message : "Sync failed.",
-          updatedAt: new Date().toISOString(),
-        });
+        const message = error instanceof Error ? error.message : "Sync failed.";
         hadError = true;
-        setLastSyncError(error instanceof Error ? error.message : "Sync failed.");
+        lastError = message;
+
+        for (const operation of pendingOperations) {
+          await updateOperation({
+            ...operation,
+            status: "pending",
+            retryCount: operation.retryCount + 1,
+            lastError: message,
+            updatedAt: new Date().toISOString(),
+          });
+        }
       }
-    }
     } finally {
       setIsSyncing(false);
     }
 
     await refreshCounts();
 
-    // A fully clean pass means everything reached the server — clear any prior
-    // error and stamp the last successful sync time for the status badge.
     if (!hadError) {
       setLastSyncError(null);
       setLastSyncedAt(new Date().toISOString());
+    } else if (lastError) {
+      setLastSyncError(lastError);
     }
   }, [refreshCounts]);
 
@@ -132,9 +223,6 @@ export function useOfflineOutbox() {
         updatedAt: now,
       };
 
-      // The write is durable (in IndexedDB) the moment it's enqueued, so callers
-      // can defer the network sync (e.g. debounce rapid slider edits) while the
-      // value is still safely captured and reflected in `pendingCount`.
       await enqueueScoreOperation(operation);
       await refreshCounts();
 
@@ -152,9 +240,6 @@ export function useOfflineOutbox() {
     return () => window.clearTimeout(timeoutId);
   }, [isOnline, syncPending]);
 
-  // On mount, clear any conflicts left stuck from lock/finalize rejections
-  // (e.g. a late write after "Submit & lock"), then refresh counts so the badge
-  // is accurate from first render.
   useEffect(() => {
     void discardLockedConflicts().then(() => refreshCounts());
   }, [refreshCounts]);

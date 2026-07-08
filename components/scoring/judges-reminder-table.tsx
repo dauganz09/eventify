@@ -40,6 +40,7 @@ import {
   sendJudgeBulkReminderAction,
   sendJudgeReminderAction,
 } from "@/app/(dashboard)/tabulator/actions";
+import { useTabulatorLiveSnapshot } from "@/components/scoring/tabulator-live-context";
 
 interface Judge {
   id: string;
@@ -86,6 +87,9 @@ export function JudgesReminderTable({
   /** The currently active set id, for releasing a judge's submit-&-lock. */
   activeSetId: string | null;
 }) {
+  const live = useTabulatorLiveSnapshot();
+  const resolvedJudges = live?.judges ?? judges;
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [target, setTarget] = useState<Target | null>(null);
   const [message, setMessage] = useState("");
@@ -129,10 +133,13 @@ export function JudgesReminderTable({
     });
   }
 
-  const activeJudges = useMemo(() => judges.filter((j) => j.isActive), [judges]);
+  const activeJudges = useMemo(
+    () => resolvedJudges.filter((j) => j.isActive),
+    [resolvedJudges],
+  );
   const activeSetName = useMemo(
-    () => judges.find((j) => j.activeSetProgress)?.activeSetProgress?.setName ?? null,
-    [judges],
+    () => resolvedJudges.find((j) => j.activeSetProgress)?.activeSetProgress?.setName ?? null,
+    [resolvedJudges],
   );
   const selectableIds = useMemo(() => activeJudges.map((j) => j.id), [activeJudges]);
   const allActiveSelected =
@@ -198,7 +205,7 @@ export function JudgesReminderTable({
     });
   }
 
-  if (judges.length === 0) {
+  if (resolvedJudges.length === 0) {
     return <p className="text-sm text-muted-foreground">No judges added yet.</p>;
   }
 
@@ -291,7 +298,7 @@ export function JudgesReminderTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {judges.map((judge) => {
+            {resolvedJudges.map((judge) => {
               const checked = selected.has(judge.id);
               return (
                 <TableRow key={judge.id}>

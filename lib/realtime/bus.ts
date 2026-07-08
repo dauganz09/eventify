@@ -33,8 +33,30 @@ function channel(eventId: string) {
   return `event:${eventId}`;
 }
 
+const RESULTS_UPDATED_DEBOUNCE_MS = 400;
+
+const globalForCoalesce = globalThis as unknown as {
+  __tabulateResultsTimers?: Map<string, ReturnType<typeof setTimeout>>;
+};
+const resultsUpdatedTimers =
+  globalForCoalesce.__tabulateResultsTimers ?? new Map();
+globalForCoalesce.__tabulateResultsTimers = resultsUpdatedTimers;
+
 export function publishEvent(eventId: string, payload: RealtimePayload) {
   emitter.emit(channel(eventId), payload);
+}
+
+/** Coalesce rapid score writes into one tabulator refresh signal per event. */
+export function publishResultsUpdated(eventId: string) {
+  const pending = resultsUpdatedTimers.get(eventId);
+  if (pending) clearTimeout(pending);
+
+  const timer = setTimeout(() => {
+    resultsUpdatedTimers.delete(eventId);
+    publishEvent(eventId, { type: "results.updated" });
+  }, RESULTS_UPDATED_DEBOUNCE_MS);
+
+  resultsUpdatedTimers.set(eventId, timer);
 }
 
 export function subscribe(

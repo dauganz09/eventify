@@ -231,3 +231,20 @@ export const scoreOperationSchema = z.object({
 });
 
 export type ScoreOperationInput = z.infer<typeof scoreOperationSchema>;
+
+export const scoreBatchSchema = z
+  .object({
+    operations: z.array(scoreOperationSchema).min(1).max(50),
+  })
+  .superRefine((value, ctx) => {
+    const eventIds = new Set(value.operations.map((operation) => operation.eventId));
+    if (eventIds.size !== 1) {
+      ctx.addIssue({
+        code: "custom",
+        message: "All operations in a batch must belong to the same event.",
+        path: ["operations"],
+      });
+    }
+  });
+
+export type ScoreBatchInput = z.infer<typeof scoreBatchSchema>;

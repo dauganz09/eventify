@@ -7,7 +7,7 @@ import { events, judges, judgeSetSubmissions, roundGroups, rounds, unlockRequest
 import { writeAuditLog } from "@/lib/audit/audit-service";
 import { requirePermission } from "@/lib/auth/context";
 import { deleteAllJudgeSessions } from "@/lib/auth/judge-session";
-import { publishEvent } from "@/lib/realtime/bus";
+import { publishEvent, publishResultsUpdated } from "@/lib/realtime/bus";
 import { saveManualScores } from "@/lib/scoring/manual-entry-service";
 import {
   recalculateAggregateResults,
@@ -757,7 +757,7 @@ export async function saveManualScoresAction(input: {
     metadata: { source: "tabulator", count: saved },
   });
 
-  publishEvent(input.eventId, { type: "results.updated" });
+  publishResultsUpdated(input.eventId);
   revalidatePath(`/tabulator/${input.eventId}`);
 
   return { saved };

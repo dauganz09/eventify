@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useTabulatorLiveSnapshot } from "@/components/scoring/tabulator-live-context";
 
 type TieBreak = "shared" | "countback" | "highest_single_set";
 
@@ -177,35 +178,49 @@ export function TabulatorScores({
   rankOrder: RankOrder | null;
   tieBreak?: TieBreak;
 }) {
+  const live = useTabulatorLiveSnapshot();
+  const resolvedSetColumns = live?.setColumns ?? setColumns;
+  const resolvedSetTotals = live?.setTotals ?? setTotals;
+  const resolvedFocusCriteria = live?.focusCriteria ?? focusCriteria;
+  const resolvedJudgeColumns = live?.judgeColumns ?? judgeColumns;
+  const resolvedJudgeMatrix = live?.judgeMatrix ?? judgeMatrix;
+  const resolvedFocusSetId = live?.focusSetId ?? focusSetId;
+  const resolvedActiveRound = live?.activeRound ?? activeRound;
+  const resolvedCarriedFromRounds = live?.carriedFromRounds ?? carriedFromRounds;
+  const resolvedFinalRankings = live?.finalRankings ?? finalRankings;
+  const resolvedAdvancement = live?.advancement ?? advancement;
+  const resolvedRankOrder = live?.rankOrder ?? rankOrder;
+  const resolvedTieBreak = live?.tieBreak ?? tieBreak;
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const [weighted, setWeighted] = useState(true);
   const [activeTab, setActiveTab] = useState(() =>
-    rankOrder ? "rankorder" : "standings",
+    resolvedRankOrder ? "rankorder" : "standings",
   );
-  const hadRankOrderRef = useRef(!!rankOrder);
+  const hadRankOrderRef = useRef(!!resolvedRankOrder);
 
   // Intentionally syncs the active tab to the rankOrder prop after the server
   // re-renders (auto-focus the rank-order result when it appears).
   useEffect(() => {
-    if (rankOrder && !hadRankOrderRef.current) {
+    if (resolvedRankOrder && !hadRankOrderRef.current) {
       hadRankOrderRef.current = true;
       setActiveTab("rankorder");
       return;
     }
-    if (!rankOrder) {
+    if (!resolvedRankOrder) {
       hadRankOrderRef.current = false;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTab((tab) => (tab === "rankorder" ? "standings" : tab));
     }
-  }, [rankOrder]);
+  }, [resolvedRankOrder]);
 
   const resolvedTab =
-    activeTab === "rankorder" && !rankOrder ? "standings" : activeTab;
+    activeTab === "rankorder" && !resolvedRankOrder ? "standings" : activeTab;
 
   // A rank-order round decides the true final ranking, so the cumulative
   // score table is only the advancement basis, not the final ranking.
-  const hasRankOrder = !!(rankOrder && rankOrder.rows.length > 0);
+  const hasRankOrder = !!(resolvedRankOrder && resolvedRankOrder.rows.length > 0);
 
   function selectFocusSet(setId: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -219,21 +234,26 @@ export function TabulatorScores({
   }
 
   // No active round — show final rankings if available, otherwise standby message.
-  if (!activeRound && setColumns.length === 0) {
-    if ((rankOrder && rankOrder.rows.length > 0) || (finalRankings && finalRankings.rows.length > 0)) {
+  if (!resolvedActiveRound && resolvedSetColumns.length === 0) {
+    if (
+      (resolvedRankOrder && resolvedRankOrder.rows.length > 0) ||
+      (resolvedFinalRankings && resolvedFinalRankings.rows.length > 0)
+    ) {
       return (
         <div className="grid gap-8">
-          {rankOrder && rankOrder.rows.length > 0 && <RankOrderTable rankOrder={rankOrder} />}
-          {finalRankings && finalRankings.rows.length > 0 && (
+          {resolvedRankOrder && resolvedRankOrder.rows.length > 0 && (
+            <RankOrderTable rankOrder={resolvedRankOrder} />
+          )}
+          {resolvedFinalRankings && resolvedFinalRankings.rows.length > 0 && (
             <FinalRankingsTable
-              columns={finalRankings.columns}
-              rows={finalRankings.rows}
+              columns={resolvedFinalRankings.columns}
+              rows={resolvedFinalRankings.rows}
               // When a rank-order round follows, it decides the winner — this
               // table is only the cumulative standings that fed advancement.
               title={hasRankOrder ? "Cumulative standings" : "Final Rankings"}
               isFinal={!hasRankOrder}
-              tieBreak={tieBreak}
-              advanceCount={advancement?.count ?? null}
+              tieBreak={resolvedTieBreak}
+              advanceCount={resolvedAdvancement?.count ?? null}
             />
           )}
         </div>
@@ -255,10 +275,10 @@ export function TabulatorScores({
       {/* Active-round context */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Active round:</span>
-        <span className="font-medium">{activeRound?.name ?? "Ungrouped set"}</span>
-        {advancement && (
+        <span className="font-medium">{resolvedActiveRound?.name ?? "Ungrouped set"}</span>
+        {resolvedAdvancement && (
           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-            Top {advancement.count} only — {advancement.qualifiedIds.length} qualified
+            Top {resolvedAdvancement.count} only — {resolvedAdvancement.qualifiedIds.length} qualified
             from previous rounds
           </span>
         )}
@@ -269,28 +289,28 @@ export function TabulatorScores({
         onValueChange={(value) => value && setActiveTab(value)}
       >
         <TabsList>
-          {rankOrder && <TabsTrigger value="rankorder">Rank order</TabsTrigger>}
+          {resolvedRankOrder && <TabsTrigger value="rankorder">Rank order</TabsTrigger>}
           <TabsTrigger value="standings">Standings</TabsTrigger>
           <TabsTrigger value="top">Top candidates</TabsTrigger>
           <TabsTrigger value="judges">By judge &amp; criteria</TabsTrigger>
         </TabsList>
 
         {/* ── Rank order (winner = lowest combined rank) ── */}
-        {rankOrder && (
+        {resolvedRankOrder && (
           <TabsContent value="rankorder" className="mt-4">
             <div className="grid gap-8">
-              <RankOrderTable rankOrder={rankOrder} />
+              <RankOrderTable rankOrder={resolvedRankOrder} />
               {/* Cumulative standings from the preceding rounds — the basis for
                   who advanced into this rank-order round. Handy to announce. */}
-              {finalRankings && finalRankings.rows.length > 0 && (
+              {resolvedFinalRankings && resolvedFinalRankings.rows.length > 0 && (
                 <FinalRankingsTable
-                  columns={finalRankings.columns}
-                  rows={finalRankings.rows}
+                  columns={resolvedFinalRankings.columns}
+                  rows={resolvedFinalRankings.rows}
                   title="Cumulative standings (advancement)"
                   description="Accumulated scores from the rounds before this one — the basis for advancement. Excludes this rank-order round."
                   isFinal={false}
-                  tieBreak={tieBreak}
-                  advanceCount={advancement?.count ?? null}
+                  tieBreak={resolvedTieBreak}
+                  advanceCount={resolvedAdvancement?.count ?? null}
                 />
               )}
             </div>
@@ -301,37 +321,37 @@ export function TabulatorScores({
         <TabsContent value="standings" className="mt-4">
           <LiveStandings
             eventId={eventId}
-            setColumns={setColumns}
-            setTotals={setTotals}
+            setColumns={resolvedSetColumns}
+            setTotals={resolvedSetTotals}
           />
         </TabsContent>
 
         {/* ── Top candidates (scope: overall round, or a single set) ── */}
         <TabsContent value="top" className="mt-4">
           <TopCandidates
-            setColumns={setColumns}
-            setTotals={setTotals}
+            setColumns={resolvedSetColumns}
+            setTotals={resolvedSetTotals}
           />
         </TabsContent>
 
         {/* ── By judge & criteria ── */}
         <TabsContent value="judges" className="mt-4 grid gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            {setColumns.length > 1 ? (
+            {resolvedSetColumns.length > 1 ? (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Set</span>
                 <Select
-                  value={focusSetId ?? undefined}
+                  value={resolvedFocusSetId ?? undefined}
                   onValueChange={(value) => value && selectFocusSet(value)}
                   items={Object.fromEntries(
-                    setColumns.map((s) => [s.id, s.name]),
+                    resolvedSetColumns.map((s) => [s.id, s.name]),
                   )}
                 >
                   <SelectTrigger className="w-[14rem]">
                     <SelectValue placeholder="Select a set" />
                   </SelectTrigger>
                   <SelectContent>
-                    {setColumns.map((set) => (
+                    {resolvedSetColumns.map((set) => (
                       <SelectItem key={set.id} value={set.id}>
                         {set.name}
                       </SelectItem>
@@ -374,9 +394,9 @@ export function TabulatorScores({
             </div>
           </div>
 
-          {judgeColumns.length === 0 ||
-          judgeMatrix.length === 0 ||
-          focusCriteria.length === 0 ? (
+          {resolvedJudgeColumns.length === 0 ||
+          resolvedJudgeMatrix.length === 0 ||
+          resolvedFocusCriteria.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No active judges, contestants, or criteria for this set.
             </p>
@@ -398,10 +418,10 @@ export function TabulatorScores({
                     >
                       Contestant
                     </TableHead>
-                    {judgeColumns.map((judge) => (
+                    {resolvedJudgeColumns.map((judge) => (
                       <TableHead
                         key={judge.id}
-                        colSpan={focusCriteria.length + 1}
+                        colSpan={resolvedFocusCriteria.length + 1}
                         className="border-l border-border text-center"
                       >
                         {judge.displayName}
@@ -416,11 +436,11 @@ export function TabulatorScores({
                   </TableRow>
                   {/* Row 2: criteria per judge */}
                   <TableRow>
-                    {judgeColumns.map((judge) => (
+                    {resolvedJudgeColumns.map((judge) => (
                       <CriteriaHeaderGroup
                         key={judge.id}
                         judgeId={judge.id}
-                        criteria={focusCriteria}
+                        criteria={resolvedFocusCriteria}
                       />
                     ))}
                   </TableRow>
@@ -432,19 +452,19 @@ export function TabulatorScores({
                     // average regardless of that toggle — the toggle only changes
                     // what's shown in the cells, not placement, so switching
                     // Raw/Weighted never reshuffles the rows.
-                    const withAverage = judgeMatrix.map((row) => {
+                    const withAverage = resolvedJudgeMatrix.map((row) => {
                       // Keep unrounded per-judge totals for the average — only round
                       // once, at the very end, to match the server's Standings/report
                       // formula exactly (avg of each judge's weighted total; rounding
                       // per judge first would compound rounding error and drift from
                       // the authoritative total).
-                      const rawSubtotalsUnrounded = judgeColumns.map((judge) => {
+                      const rawSubtotalsUnrounded = resolvedJudgeColumns.map((judge) => {
                         const judgeScores = row.scores[judge.id] ?? {};
                         let rawSubtotal = 0;
                         let rawHasAny = false;
                         let weightedSubtotal = 0;
                         let weightedHasAny = false;
-                        for (const criterion of focusCriteria) {
+                        for (const criterion of resolvedFocusCriteria) {
                           const rawValue = judgeScores[criterion.id] ?? null;
                           if (rawValue !== null) {
                             rawSubtotal += rawValue;
@@ -534,13 +554,13 @@ export function TabulatorScores({
                         <TableCell className="sticky left-16 z-10 whitespace-nowrap border-r border-border bg-background">
                           {contestantLabel(row)}
                         </TableCell>
-                        {judgeColumns.map((judge, judgeIndex) => {
+                        {resolvedJudgeColumns.map((judge, judgeIndex) => {
                           const judgeScores = row.scores[judge.id] ?? {};
                           const subtotal = displaySubtotals[judgeIndex].subtotal;
                           const rawSubtotal = subtotals[judgeIndex].rawSubtotal;
                           return (
                             <JudgeCells key={judge.id}>
-                              {focusCriteria.map((criterion, index) => {
+                              {resolvedFocusCriteria.map((criterion, index) => {
                                 const rawValue = judgeScores[criterion.id] ?? null;
                                 const value = display(rawValue, criterion.weight);
                                 return (

@@ -419,6 +419,12 @@ export const scoreRecords = pgTable(
       table.judgeId,
       table.criterionId,
     ),
+    index("score_records_event_status_idx").on(table.eventId, table.status),
+    index("score_records_event_round_status_idx").on(
+      table.eventId,
+      table.roundId,
+      table.status,
+    ),
   ],
 );
 
@@ -565,6 +571,9 @@ export const judgeSessions = pgTable("judge_sessions", {
     .notNull(),
   eventId: uuid("event_id")
     .references(() => events.id, { onDelete: "cascade" })
+    .notNull(),
+  organizationId: uuid("organization_id")
+    .references(() => organizations.id, { onDelete: "cascade" })
     .notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

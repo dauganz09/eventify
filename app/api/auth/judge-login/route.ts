@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { judges } from "@/db/schema";
+import { events, judges } from "@/db/schema";
 import { verifyPassword } from "@/lib/auth/local-session";
 import { publishEvent } from "@/lib/realtime/bus";
 import {
@@ -65,7 +65,22 @@ export async function POST(request: Request) {
     await deleteJudgeSession(db, ownToken);
   }
 
-  const sessionToken = await createJudgeSession(db, judge.id, judge.eventId);
+  const [event] = await db
+    .select({ organizationId: events.organizationId })
+    .from(events)
+    .where(eq(events.id, judge.eventId))
+    .limit(1);
+
+  if (!event) {
+    return NextResponse.json({ error: "Event not found." }, { status: 404 });
+  }
+
+  const sessionToken = await createJudgeSession(
+    db,
+    judge.id,
+    judge.eventId,
+    event.organizationId,
+  );
   cookieStore.set(JUDGE_SESSION_COOKIE, sessionToken, judgeSessionCookieOptions);
 
   // Let the tabulator console update its judge session column live.
