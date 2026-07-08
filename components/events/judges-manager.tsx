@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { nativeSelectClassName } from "@/lib/events/format";
 
 export type JudgeRow = {
   id: string;
@@ -106,7 +105,9 @@ export function JudgesManager({
               eventId={eventId}
               rounds={rounds}
               judge={row.original}
-              defaultRoundGroupId={judgeAssignments[0]?.roundGroupId ?? undefined}
+              defaultRoundGroupIds={judgeAssignments
+                .map((a) => a.roundGroupId)
+                .filter((id): id is string => id !== null)}
               trigger={<Button size="sm" variant="ghost">Edit</Button>}
             />
             <DeleteJudgeButton
@@ -180,13 +181,13 @@ function JudgeFormDialog({
   eventId,
   rounds,
   judge,
-  defaultRoundGroupId,
+  defaultRoundGroupIds = [],
   trigger,
 }: {
   eventId: string;
   rounds: RoundOption[];
   judge?: JudgeRow;
-  defaultRoundGroupId?: string | null;
+  defaultRoundGroupIds?: string[];
   trigger: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -234,21 +235,36 @@ function JudgeFormDialog({
               </Label>
               <Input id="jd-password" name="password" type="password" autoComplete="new-password" required={!isEdit} defaultValue="" />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="jd-roundGroupId">Assign to round</Label>
-              <select
-                className={nativeSelectClassName}
-                id="jd-roundGroupId"
-                name="roundGroupId"
-                defaultValue={defaultRoundGroupId ?? ""}
-              >
-                <option value="">Event-wide (all rounds)</option>
-                {rounds.map((round) => (
-                  <option key={round.id} value={round.id}>{round.name}</option>
-                ))}
-              </select>
+            <div className="grid gap-2 sm:col-span-2">
+              <Label>Assign to rounds</Label>
+              {rounds.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No rounds yet — this judge scores event-wide.
+                </p>
+              ) : (
+                <div className="grid gap-2 rounded-md border border-input p-3">
+                  {rounds.map((round) => (
+                    <label
+                      key={round.id}
+                      htmlFor={`jd-round-${round.id}`}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        className="size-4 rounded border border-input"
+                        id={`jd-round-${round.id}`}
+                        name="roundGroupId"
+                        type="checkbox"
+                        value={round.id}
+                        defaultChecked={defaultRoundGroupIds.includes(round.id)}
+                      />
+                      {round.name}
+                    </label>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-muted-foreground">
-                A round assignment covers every set inside that round.
+                Select one or more rounds, each covering every set inside it.
+                Leave all unchecked for event-wide (all rounds).
               </p>
             </div>
             <div className="flex items-center gap-2">
