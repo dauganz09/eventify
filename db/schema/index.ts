@@ -532,6 +532,24 @@ export const reports = pgTable("reports", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
+/**
+ * Saved print report definitions that combine scores from arbitrary sets
+ * (e.g. "Miss Eloquence" = Evening Gown from Prelim + Q&A from Semi-finals).
+ */
+export const customPrintReports = pgTable("custom_print_reports", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: uuid("event_id")
+    .references(() => events.id, { onDelete: "cascade" })
+    .notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  /** Ordered list of set (rounds) ids whose scores are combined for ranking. */
+  setIds: jsonb("set_ids").$type<string[]>().notNull(),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const themes = pgTable("themes", {
   id: uuid("id").defaultRandom().primaryKey(),
   organizationId: uuid("organization_id")
