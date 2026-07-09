@@ -248,3 +248,20 @@ export const scoreBatchSchema = z
   });
 
 export type ScoreBatchInput = z.infer<typeof scoreBatchSchema>;
+
+export const customPrintReportUpsertSchema = z.object({
+  eventId: idSchema,
+  reportId: idSchema.optional(),
+  name: z.string().trim().min(2).max(160),
+  description: z
+    .union([z.string().trim().max(2_000), z.literal(""), z.null()])
+    .optional(),
+  setIds: z.array(idSchema).min(1).max(50),
+});
+
+export type CustomPrintReportUpsertInput = z.infer<typeof customPrintReportUpsertSchema>;
+
+export const customPrintReportDeleteSchema = z.object({
+  eventId: idSchema,
+  reportId: idSchema,
+});

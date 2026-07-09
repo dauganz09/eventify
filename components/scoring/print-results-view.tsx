@@ -92,11 +92,11 @@ export function PrintResultsView({
           {view.renderOverall && (
             <section className="grid gap-2 rpt-break-avoid">
               <PrintSectionHeader
-                title="Overall Ranking"
+                title="Cumulative Rankings"
                 subtitle={
                   report.roundScoreMode === "sum"
-                    ? "Event-wide total points"
-                    : "Event-wide average"
+                    ? "Accumulated points across the scored rounds"
+                    : "Accumulated average across the scored rounds"
                 }
               />
               <RankingTable

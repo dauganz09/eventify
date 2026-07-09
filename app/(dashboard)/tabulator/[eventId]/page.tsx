@@ -31,7 +31,10 @@ import {
 import { TabulatorScores } from "@/components/scoring/tabulator-scores";
 import { TabulatorRealtime } from "@/components/scoring/tabulator-realtime";
 import { TabulatorLiveProvider } from "@/components/scoring/tabulator-live-context";
+import { CustomPrintReportsSection } from "@/components/scoring/custom-print-reports-section";
+import type { CustomReportSetOption } from "@/components/scoring/custom-print-reports-section";
 import { TabulatorRoundsSection } from "@/components/scoring/tabulator-rounds-section";
+import { listCustomPrintReports } from "@/lib/scoring/custom-print-report-service";
 import { toTabulatorLiveSnapshot } from "@/lib/scoring/tabulator-snapshot-service";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -109,6 +112,27 @@ export default async function TabulatorEventPage({
       ),
     );
 
+  const customPrintReports = await listCustomPrintReports({
+    database: db,
+    organizationId: context.organization.id,
+    eventId,
+  });
+
+  const customReportSetOptions: CustomReportSetOption[] = [
+    ...detail.groups.flatMap((group) =>
+      group.sets.map((set) => ({
+        id: set.id,
+        label: set.name,
+        group: group.name,
+      })),
+    ),
+    ...detail.ungroupedSets.map((set) => ({
+      id: set.id,
+      label: set.name,
+      group: "Ungrouped sets",
+    })),
+  ];
+
   return (
     <>
       {/* Outside the provider so snapshot state updates never recreate SSE. */}
@@ -181,6 +205,13 @@ export default async function TabulatorEventPage({
             <Printer className="size-4" />
             Score breakdown
           </NewTabLink>
+          <NewTabLink
+            href={`/tabulator/${eventId}/print/judge-scores`}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <Printer className="size-4" />
+            Judge scores
+          </NewTabLink>
           <form action={recalculateResultsAction}>
             <input type="hidden" name="eventId" value={eventId} />
             <button
@@ -251,6 +282,12 @@ export default async function TabulatorEventPage({
               className="rounded-md px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               Judges
+            </a>
+            <a
+              href="#custom-reports"
+              className="rounded-md px-2.5 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              Custom reports
             </a>
           </div>
         </div>
@@ -343,6 +380,7 @@ export default async function TabulatorEventPage({
             carriedFromRounds={detail.carriedFromRounds}
             finalRankings={detail.finalRankings}
             advancement={detail.advancement}
+            advancementPreview={detail.advancementPreview}
             rankOrder={detail.rankOrder}
             tieBreak={detail.tieBreak}
           />
@@ -493,6 +531,13 @@ export default async function TabulatorEventPage({
           </CardContent>
         </Card>
       )}
+
+      <CustomPrintReportsSection
+        eventId={eventId}
+        reports={customPrintReports}
+        setOptions={customReportSetOptions}
+        canManage={canAdjust}
+      />
 
       {/* Judges */}
       <Card id="judges" className="scroll-mt-32">
