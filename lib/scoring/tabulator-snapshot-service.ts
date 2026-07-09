@@ -26,6 +26,7 @@ export interface TabulatorLiveSnapshot {
   carriedFromRounds: EventTabulatorDetail["carriedFromRounds"];
   finalRankings: EventTabulatorDetail["finalRankings"];
   advancement: EventTabulatorDetail["advancement"];
+  advancementPreview: EventTabulatorDetail["advancementPreview"];
   rankOrder: EventTabulatorDetail["rankOrder"];
   tieBreak: EventTabulatorDetail["tieBreak"];
 }
@@ -101,10 +102,10 @@ async function resolveLiveScoreRoundIds(
     for (const round of roundRows) {
       if (round.roundGroupId === activeGroup.id) ids.add(round.id);
     }
-    if (activeGroup.scoringMethod === "rank_order") {
-      for (const round of roundRows) {
-        if (round.status === "finished") ids.add(round.id);
-      }
+    // Prior finished sets feed carry-over columns and cumulative/advancement
+    // preview standings while a points or rank-order round is active.
+    for (const round of roundRows) {
+      if (round.status === "finished") ids.add(round.id);
     }
   } else {
     for (const round of roundRows) {
@@ -162,6 +163,7 @@ export function toTabulatorLiveSnapshot(
     carriedFromRounds: detail.carriedFromRounds,
     finalRankings: detail.finalRankings,
     advancement: detail.advancement,
+    advancementPreview: detail.advancementPreview,
     rankOrder: detail.rankOrder,
     tieBreak: detail.tieBreak,
   };

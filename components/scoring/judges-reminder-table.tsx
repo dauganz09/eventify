@@ -9,6 +9,7 @@ import {
   LockOpen,
   LogOut,
   Power,
+  Printer,
   Send,
   Wifi,
   WifiOff,
@@ -40,6 +41,7 @@ import {
   sendJudgeBulkReminderAction,
   sendJudgeReminderAction,
 } from "@/app/(dashboard)/tabulator/actions";
+import { NewTabLink } from "@/components/scoring/new-tab-link";
 import { useTabulatorLiveSnapshot } from "@/components/scoring/tabulator-live-context";
 
 interface Judge {
@@ -322,6 +324,13 @@ export function JudgesReminderTable({
                         <Power className="size-4 text-muted-foreground" />
                       )}
                       <span className="font-medium">{judge.displayName}</span>
+                      <NewTabLink
+                        href={`/tabulator/${eventId}/print/judge-scores?judge=${judge.id}`}
+                        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <Printer className="size-3.5" />
+                        Scores
+                      </NewTabLink>
                     </div>
                   </TableCell>
                   <TableCell>
