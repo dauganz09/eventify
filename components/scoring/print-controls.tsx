@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Printer } from "lucide-react";
 import {
   PrintScopeSelector,
@@ -31,6 +31,7 @@ export function PrintControls({
   showJudges: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   function toggleJudges(next: boolean) {
@@ -38,14 +39,14 @@ export function PrintControls({
     if (next) params.set("judges", "1");
     else params.delete("judges");
     const qs = params.toString();
-    router.push(qs ? `?${qs}` : "?", { scroll: false });
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+    <div className="rpt-page-toolbar flex flex-wrap items-center justify-between gap-3 print:hidden">
       <Link
         href={backHref}
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1 text-sm text-[#5c6478] hover:text-[#0f1f3d]"
       >
         <ArrowLeft className="size-4" />
         Back to tabulator
@@ -58,11 +59,11 @@ export function PrintControls({
             checked={showJudges}
             onCheckedChange={toggleJudges}
           />
-          <Label htmlFor="show-judges" className="text-sm text-muted-foreground">
+          <Label htmlFor="show-judges" className="text-sm text-[#5c6478]">
             Judge scores
           </Label>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-[#5c6478]">
           Generated {new Date(generatedAt).toLocaleString()}
         </span>
         <button

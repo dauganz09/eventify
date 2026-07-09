@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Select,
   SelectContent,
@@ -32,6 +32,7 @@ export function PrintScopeSelector({
   options: ScopeOption[];
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   function onChange(value: string | null) {
@@ -40,7 +41,7 @@ export function PrintScopeSelector({
     if (value === "all") params.delete("scope");
     else params.set("scope", value);
     const qs = params.toString();
-    router.push(qs ? `?${qs}` : "?", { scroll: false });
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
   const general = options.filter((o) => o.group === "general");
