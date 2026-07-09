@@ -238,13 +238,16 @@ export interface EventTabulatorDetail {
   /** The currently active round group, if any (drives which columns show). */
   activeRound: { id: string; name: string; carryOver: boolean } | null;
   /**
-   * Advancement scope of the active round: set when the active group restricts
-   * scoring to the top N qualifiers snapshotted at activation. Null = everyone.
+   * Advancement scope for the active round, or a preview of who would advance
+   * into the next rank-order round before it is activated.
    */
   advancement: {
     count: number;
     qualifiedIds: string[];
     displayOrder: string;
+    roundName: string;
+    /** True when the target round is not yet active (preview before activation). */
+    isPreview: boolean;
   } | null;
   /**
    * Rank-order standings for the active rank-order round (or, when no round is
@@ -270,14 +273,20 @@ export interface EventTabulatorDetail {
   judgeColumns: { id: string; displayName: string }[];
   judgeMatrix: JudgeMatrixRow[];
   /**
-   * Final weighted standings across all finished rounds. Populated when there
-   * is no active round and at least one round group has been scored. Null while
-   * an active round is in progress (use setTotals instead).
+   * Final weighted standings across finished point rounds. Populated when there
+   * is no active round, a rank-order round is active, or every set in the last
+   * points round before a rank-order round is finished (advancement preview).
    */
   finalRankings: {
     columns: FinalRankingsColumn[];
     rows: FinalRankingsRow[];
   } | null;
+  /**
+   * True when cumulative standings + advancement cut should be shown before
+   * activating the next rank-order round — including while the last points
+   * round is still marked active but all of its sets are finished.
+   */
+  advancementPreview: boolean;
 }
 
 // ── Cumulative standings (shared by final rankings + advancement) ───────────
@@ -529,6 +538,66 @@ export async function snapshotAdvancementQualifiers(params: {
     .where(eq(roundGroups.id, groupId));
 
   return { qualifiedIds, standings: scoredRows };
+}
+
+function isPointsRoundGroup(group: Pick<GroupSummary, "scoringMethod">) {
+  return group.scoringMethod !== "rank_order";
+}
+
+function allSetsFinished(group: Pick<GroupSummary, "sets">) {
+  return group.sets.length > 0 && group.sets.every((set) => set.status === "finished");
+}
+
+/**
+ * The next rank-order round waiting to open once every preceding points round
+ * has been scored (group finished, or still active with all sets finished).
+ */
+function resolvePendingAdvancementGroup(groups: GroupSummary[]): GroupSummary | null {
+  const sorted = [...groups].sort((a, b) => a.position - b.position);
+  for (const group of sorted) {
+    if (group.scoringMethod !== "rank_order" || group.advanceCount === null) continue;
+    if (group.status === "active") continue;
+
+    const priorPoints = sorted.filter(
+      (g) => g.position < group.position && isPointsRoundGroup(g),
+    );
+    if (priorPoints.length === 0) continue;
+
+    const priorComplete = priorPoints.every(
+      (g) => g.status === "finished" || allSetsFinished(g),
+    );
+    if (priorComplete) return group;
+  }
+  return null;
+}
+
+function buildAdvancement(params: {
+  group: GroupSummary;
+  qualifiedSnapshot: string[] | null;
+  finalRankings: EventTabulatorDetail["finalRankings"];
+}): EventTabulatorDetail["advancement"] {
+  const { group, qualifiedSnapshot, finalRankings } = params;
+  if (group.advanceCount === null) return null;
+
+  const fromSnapshot =
+    group.status === "active" && qualifiedSnapshot && qualifiedSnapshot.length > 0
+      ? qualifiedSnapshot.slice(0, group.advanceCount)
+      : null;
+  const fromStandings =
+    finalRankings?.rows
+      .filter((row) => row.rank <= group.advanceCount!)
+      .map((row) => row.contestantId) ?? [];
+
+  const qualifiedIds = fromSnapshot ?? fromStandings;
+  if (qualifiedIds.length === 0 && !finalRankings) return null;
+
+  return {
+    count: group.advanceCount,
+    qualifiedIds,
+    displayOrder: group.advanceDisplayOrder,
+    roundName: group.name,
+    isPreview: group.status !== "active",
+  };
 }
 
 // ── Main loader ──────────────────────────────────────────────────────────────
@@ -1007,15 +1076,31 @@ export async function getEventTabulatorDetail(params: {
   // point/carry-over rounds). A rank-order round decides its own result and its
   // score isn't comparable, so exclude rank-order rounds from this total — but
   // still show the accumulated standings of the rounds that precede it.
-  const standingsGroups = finishedGroups.filter((g) => g.scoringMethod !== "rank_order");
+  const pendingAdvancementGroup = resolvePendingAdvancementGroup(groups);
+  const activePointsAllSetsDone =
+    activeGroup && isPointsRoundGroup(activeGroup) && allSetsFinished(activeGroup)
+      ? activeGroup
+      : null;
+  const standingsGroups = [
+    ...finishedGroups.filter((g) => isPointsRoundGroup(g)),
+    ...(activePointsAllSetsDone &&
+    pendingAdvancementGroup &&
+    activePointsAllSetsDone.position < pendingAdvancementGroup.position &&
+    !finishedGroups.some((g) => g.id === activePointsAllSetsDone.id)
+      ? [activePointsAllSetsDone]
+      : []),
+  ].sort((a, b) => a.position - b.position);
 
-  // Expose the cumulative standings both when no round is active (between/after
-  // rounds — to announce who advances) AND while a rank-order round is active,
-  // since that round doesn't produce a cumulative of its own and the tabulator
-  // still needs the advancement standings on hand.
+  // Expose cumulative standings when between rounds, during a rank-order round,
+  // or while the last points round before rank-order is fully scored (even if
+  // the tabulator hasn't clicked "Finish round" yet).
   const activeIsRankOrder = activeGroup?.scoringMethod === "rank_order";
+  const advancementPreview =
+    pendingAdvancementGroup !== null &&
+    standingsGroups.length > 0 &&
+    (activeGroup === null || activeIsRankOrder || activePointsAllSetsDone !== null);
   let finalRankings: EventTabulatorDetail["finalRankings"] = null;
-  if ((activeGroup === null || activeIsRankOrder) && standingsGroups.length > 0) {
+  if (advancementPreview || ((activeGroup === null || activeIsRankOrder) && standingsGroups.length > 0)) {
     const standings = computeGroupStandings({
       groups: standingsGroups,
       totalsBySet,
@@ -1263,12 +1348,20 @@ export async function getEventTabulatorDetail(params: {
       : null,
     advancement:
       activeGroup && activeGroup.advanceCount !== null && activeQualifiedIds
-        ? {
-            count: activeGroup.advanceCount,
-            qualifiedIds: activeQualifiedIds,
-            displayOrder: activeGroup.advanceDisplayOrder,
-          }
-        : null,
+        ? buildAdvancement({
+            group: activeGroup,
+            qualifiedSnapshot: activeQualifiedIds,
+            finalRankings,
+          })
+        : pendingAdvancementGroup && finalRankings
+          ? buildAdvancement({
+              group: pendingAdvancementGroup,
+              qualifiedSnapshot:
+                snapshotByGroupId.get(pendingAdvancementGroup.id) ?? null,
+              finalRankings,
+            })
+          : null,
+    advancementPreview,
     rankOrder,
     roundScoreMode,
     tieBreak,

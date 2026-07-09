@@ -91,6 +91,8 @@ interface Advancement {
   count: number;
   qualifiedIds: string[];
   displayOrder: string;
+  roundName: string;
+  isPreview: boolean;
 }
 
 interface RankOrderRow {
@@ -161,6 +163,7 @@ export function TabulatorScores({
   carriedFromRounds,
   finalRankings,
   advancement,
+  advancementPreview = false,
   rankOrder,
   tieBreak = "shared",
 }: {
@@ -175,6 +178,7 @@ export function TabulatorScores({
   carriedFromRounds: { id: string; name: string }[];
   finalRankings: { columns: FinalRankingsColumn[]; rows: FinalRankingsRow[] } | null;
   advancement: Advancement | null;
+  advancementPreview?: boolean;
   rankOrder: RankOrder | null;
   tieBreak?: TieBreak;
 }) {
@@ -198,6 +202,7 @@ export function TabulatorScores({
   const resolvedCarriedFromRounds = live?.carriedFromRounds ?? carriedFromRounds;
   const resolvedFinalRankings = live?.finalRankings ?? finalRankings;
   const resolvedAdvancement = live?.advancement ?? advancement;
+  const resolvedAdvancementPreview = live?.advancementPreview ?? advancementPreview;
   const resolvedRankOrder = live?.rankOrder ?? rankOrder;
   const resolvedTieBreak = live?.tieBreak ?? tieBreak;
 
@@ -228,6 +233,21 @@ export function TabulatorScores({
   // A rank-order round decides the true final ranking, so the cumulative
   // score table is only the advancement basis, not the final ranking.
   const hasRankOrder = !!(resolvedRankOrder && resolvedRankOrder.rows.length > 0);
+  const showCumulativeRankings =
+    (!resolvedActiveRound && resolvedSetColumns.length === 0) ||
+    (resolvedAdvancementPreview &&
+      !!resolvedFinalRankings &&
+      resolvedFinalRankings.rows.length > 0);
+  const cumulativeTitle =
+    hasRankOrder || resolvedAdvancement?.isPreview
+      ? "Cumulative Rankings"
+      : "Final Rankings";
+  const cumulativeDescription =
+    resolvedAdvancement?.isPreview && resolvedAdvancement.roundName
+      ? `Accumulated scores from the points rounds — top ${resolvedAdvancement.count} advance to ${resolvedAdvancement.roundName}.`
+      : hasRankOrder
+        ? "Accumulated scores from the rounds before the rank-order final."
+        : undefined;
 
   function selectFocusSet(setId: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -240,14 +260,25 @@ export function TabulatorScores({
     return weighted ? round4(raw * (weight / 100)) : raw;
   }
 
-  // No active round — show final rankings if available, otherwise standby message.
-  if (!resolvedActiveRound && resolvedSetColumns.length === 0) {
+  // Between rounds, or while previewing who advances into the next rank-order
+  // round — show cumulative standings with the advancement cut line.
+  if (showCumulativeRankings) {
     if (
       (resolvedRankOrder && resolvedRankOrder.rows.length > 0) ||
       (resolvedFinalRankings && resolvedFinalRankings.rows.length > 0)
     ) {
       return (
         <div className="grid gap-8">
+          {resolvedAdvancementPreview && resolvedActiveRound && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm">
+              <p className="font-medium">Ready for advancement</p>
+              <p className="mt-1 text-muted-foreground">
+                Every set in {resolvedActiveRound.name} is scored. Finish the round
+                under &quot;Rounds &amp; sets&quot; when you are ready, then activate{" "}
+                {resolvedAdvancement?.roundName ?? "the next round"}.
+              </p>
+            </div>
+          )}
           {resolvedRankOrder && resolvedRankOrder.rows.length > 0 && (
             <RankOrderTable rankOrder={resolvedRankOrder} />
           )}
@@ -255,12 +286,12 @@ export function TabulatorScores({
             <FinalRankingsTable
               columns={resolvedFinalRankings.columns}
               rows={resolvedFinalRankings.rows}
-              // When a rank-order round follows, it decides the winner — this
-              // table is only the cumulative standings that fed advancement.
-              title={hasRankOrder ? "Cumulative standings" : "Final Rankings"}
-              isFinal={!hasRankOrder}
+              title={cumulativeTitle}
+              description={cumulativeDescription}
+              isFinal={!hasRankOrder && !resolvedAdvancement?.isPreview}
               tieBreak={resolvedTieBreak}
               advanceCount={resolvedAdvancement?.count ?? null}
+              advanceRoundName={resolvedAdvancement?.roundName ?? null}
             />
           )}
         </div>
@@ -313,11 +344,12 @@ export function TabulatorScores({
                 <FinalRankingsTable
                   columns={resolvedFinalRankings.columns}
                   rows={resolvedFinalRankings.rows}
-                  title="Cumulative standings (advancement)"
+                  title="Cumulative Rankings"
                   description="Accumulated scores from the rounds before this one — the basis for advancement. Excludes this rank-order round."
                   isFinal={false}
                   tieBreak={resolvedTieBreak}
                   advanceCount={resolvedAdvancement?.count ?? null}
+                  advanceRoundName={resolvedAdvancement?.roundName ?? null}
                 />
               )}
             </div>
@@ -1039,6 +1071,7 @@ function FinalRankingsTable({
   isFinal = true,
   tieBreak = "shared",
   advanceCount = null,
+  advanceRoundName = null,
 }: {
   columns: FinalRankingsColumn[];
   rows: FinalRankingsRow[];
@@ -1056,6 +1089,8 @@ function FinalRankingsTable({
   tieBreak?: TieBreak;
   /** Advancement cut (top N); draws the cut line. Null = no advancement. */
   advanceCount?: number | null;
+  /** Target round name shown on the advancement cut line. */
+  advanceRoundName?: string | null;
 }) {
   const hasWeights = columns.some((c) => c.weight !== 100);
   const colSpan = columns.length + 3;
@@ -1195,6 +1230,7 @@ function FinalRankingsTable({
                     <td colSpan={colSpan} className="p-0">
                       <div className="flex items-center gap-2 border-y-2 border-dashed border-primary/50 bg-primary/5 px-3 py-1 text-[0.72rem] font-semibold text-primary">
                         ✂ Advancement cut — top {advanceCount} advance
+                        {advanceRoundName ? ` to ${advanceRoundName}` : ""}
                         {cutSplitsATie
                           ? ` · ⚠ a tie on the line means ${advancingCount} advance (set a tie-break to cut to ${advanceCount})`
                           : ""}

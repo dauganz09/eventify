@@ -25,7 +25,7 @@ export function printScopeToValue(scope: PrintScope): string {
 export function buildPrintScopeOptions(report: ResultsReport): ScopeOption[] {
   const options: ScopeOption[] = [
     { value: "all", label: "Final Results", group: "general" },
-    { value: "overall", label: "Overall ranking", group: "general" },
+    { value: "overall", label: "Cumulative rankings", group: "general" },
   ];
   for (const round of report.rounds) {
     options.push({
@@ -93,7 +93,7 @@ export function resolvePrintScopeView(
     }
   } else if (scope.kind === "overall") {
     renderOverall = true;
-    scopeTitle = "Overall Ranking";
+    scopeTitle = "Cumulative Rankings";
   } else if (scope.kind === "round") {
     const round = findRound(report, scope.id);
     if (round) {

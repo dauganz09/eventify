@@ -10,6 +10,9 @@ import { deleteAllJudgeSessions } from "@/lib/auth/judge-session";
 import { publishEvent, publishResultsUpdated } from "@/lib/realtime/bus";
 import { saveManualScores } from "@/lib/scoring/manual-entry-service";
 import {
+  resetRoundGroupScores,
+} from "@/lib/scoring/score-reset-service";
+import {
   recalculateAggregateResults,
   snapshotAdvancementQualifiers,
 } from "@/lib/scoring/tabulator-service";
@@ -785,4 +788,66 @@ export async function recalculateResultsAction(formData: FormData) {
   });
 
   revalidatePath(`/tabulator/${eventId}`);
+}
+
+/**
+ * Clears every score, submission, and unlock request scoped to one round group,
+ * resets that round and its sets to idle, and recalculates cached standings.
+ */
+export async function clearRoundScoresAction(groupId: string) {
+  const context = await requirePermission("score.adjust");
+  if (!groupId) throw new Error("Missing round.");
+
+  const result = await resetRoundGroupScores({
+    database: db,
+    organizationId: context.organization.id,
+    groupId,
+  });
+
+  const summary = await db
+    .select({ eventId: roundGroups.eventId, name: roundGroups.name })
+    .from(roundGroups)
+    .innerJoin(events, eq(events.id, roundGroups.eventId))
+    .where(
+      and(
+        eq(roundGroups.id, groupId),
+        eq(events.organizationId, context.organization.id),
+      ),
+    )
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (!summary) throw new Error("Round not found.");
+
+  await recalculateAggregateResults({
+    database: db,
+    eventId: summary.eventId,
+  });
+
+  await writeAuditLog({
+    database: db,
+    organizationId: context.organization.id,
+    eventId: summary.eventId,
+    actorUserId: context.userId,
+    action: "round.scores_cleared",
+    entityType: "round_group",
+    entityId: groupId,
+    metadata: {
+      source: "tabulator",
+      roundName: summary.name,
+      clearedScoreRecords: result.scoreRecords,
+      clearedJudgeSubmissions: result.judgeSubmissions,
+    },
+  });
+
+  publishResultsUpdated(summary.eventId);
+  publishEvent(summary.eventId, {
+    type: "round.changed",
+    scope: "group",
+    id: groupId,
+    status: "idle",
+  });
+  revalidatePath(`/tabulator/${summary.eventId}`);
+
+  return result;
 }

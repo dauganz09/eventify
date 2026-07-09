@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2, Power } from "lucide-react";
+import { CheckCircle2, Power, RotateCcw } from "lucide-react";
+import { ClearRoundScoresDialog } from "@/components/scoring/clear-round-scores-dialog";
 import { FinishRoundDialog } from "@/components/scoring/finish-round-dialog";
 import { useTabulatorLiveSnapshot } from "@/components/scoring/tabulator-live-context";
 import {
@@ -191,33 +192,48 @@ export function TabulatorRoundsSection({
               )}
             </div>
             {canAdjust && (
-              <LifecycleControls
-                action={setRoundStatusAction}
-                idName="groupId"
-                id={group.id}
-                status={group.status}
-                label="round"
-                canActivate={!anyRoundActive}
-                finishSlot={
-                  group.status === "active" ? (
-                    <FinishRoundDialog
-                      groupId={group.id}
-                      groupName={group.name}
-                      sets={group.sets.map((s) => ({ id: s.id, name: s.name }))}
-                      carryOverScores={group.carryOver}
-                      trigger={
-                        <button
-                          type="button"
-                          className={LIFECYCLE_BTN}
-                        >
-                          <CheckCircle2 className="size-4" />
-                          Finish round
-                        </button>
-                      }
-                    />
-                  ) : undefined
-                }
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <LifecycleControls
+                  action={setRoundStatusAction}
+                  idName="groupId"
+                  id={group.id}
+                  status={group.status}
+                  label="round"
+                  canActivate={!anyRoundActive}
+                  finishSlot={
+                    group.status === "active" ? (
+                      <FinishRoundDialog
+                        groupId={group.id}
+                        groupName={group.name}
+                        sets={group.sets.map((s) => ({ id: s.id, name: s.name }))}
+                        carryOverScores={group.carryOver}
+                        trigger={
+                          <button
+                            type="button"
+                            className={LIFECYCLE_BTN}
+                          >
+                            <CheckCircle2 className="size-4" />
+                            Finish round
+                          </button>
+                        }
+                      />
+                    ) : undefined
+                  }
+                />
+                <ClearRoundScoresDialog
+                  groupId={group.id}
+                  groupName={group.name}
+                  scoreRecords={group.sets.reduce((sum, setItem) => sum + setItem.submitted, 0)}
+                  hasData={group.sets.some((setItem) => setItem.submitted > 0)}
+                  isActive={group.status === "active"}
+                  trigger={
+                    <button type="button" className={LIFECYCLE_BTN}>
+                      <RotateCcw className="size-4" />
+                      Clear scores
+                    </button>
+                  }
+                />
+              </div>
             )}
           </div>
           <div className="grid gap-2 p-3">

@@ -181,6 +181,13 @@ export default async function TabulatorEventPage({
             <Printer className="size-4" />
             Score breakdown
           </NewTabLink>
+          <NewTabLink
+            href={`/tabulator/${eventId}/print/judge-scores`}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <Printer className="size-4" />
+            Judge scores
+          </NewTabLink>
           <form action={recalculateResultsAction}>
             <input type="hidden" name="eventId" value={eventId} />
             <button
@@ -343,6 +350,7 @@ export default async function TabulatorEventPage({
             carriedFromRounds={detail.carriedFromRounds}
             finalRankings={detail.finalRankings}
             advancement={detail.advancement}
+            advancementPreview={detail.advancementPreview}
             rankOrder={detail.rankOrder}
             tieBreak={detail.tieBreak}
           />
