@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import { registerTabulatorSnapshotRefresh } from "@/lib/realtime/tabulator-bridge";
 import type { TabulatorLiveSnapshot } from "@/lib/scoring/tabulator-snapshot-service";
 
@@ -16,7 +17,7 @@ const TabulatorLiveSnapshotContext = createContext<TabulatorLiveSnapshot | null>
 
 export function TabulatorLiveProvider({
   eventId,
-  focusSetId,
+  focusSetId: serverFocusSetId,
   initialSnapshot,
   children,
 }: {
@@ -25,8 +26,16 @@ export function TabulatorLiveProvider({
   initialSnapshot: TabulatorLiveSnapshot;
   children: ReactNode;
 }) {
+  const searchParams = useSearchParams();
+  const urlFocusSetId = searchParams.get("set");
+  const validSetIds = new Set(initialSnapshot.setColumns.map((set) => set.id));
+  const validUrlFocusSetId =
+    urlFocusSetId && validSetIds.has(urlFocusSetId) ? urlFocusSetId : null;
+  const focusSetId = validUrlFocusSetId ?? serverFocusSetId;
+
   const [snapshot, setSnapshot] = useState<TabulatorLiveSnapshot>(initialSnapshot);
   const inFlightRef = useRef(false);
+  const prevFocusSetIdRef = useRef(focusSetId);
 
   const refreshSnapshot = useCallback(async () => {
     if (inFlightRef.current) return;
@@ -49,6 +58,19 @@ export function TabulatorLiveProvider({
       inFlightRef.current = false;
     }
   }, [eventId, focusSetId]);
+
+  // Full server re-render (activate/deactivate, router.refresh from realtime).
+  useEffect(() => {
+    setSnapshot(initialSnapshot);
+    prevFocusSetIdRef.current = focusSetId;
+  }, [initialSnapshot]);
+
+  // Focus set changed via ?set= without a full page reload.
+  useEffect(() => {
+    if (prevFocusSetIdRef.current === focusSetId) return;
+    prevFocusSetIdRef.current = focusSetId;
+    void refreshSnapshot();
+  }, [focusSetId, refreshSnapshot]);
 
   useEffect(() => registerTabulatorSnapshotRefresh(refreshSnapshot), [refreshSnapshot]);
 

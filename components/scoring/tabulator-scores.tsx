@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Crown, Info, Layers, Trophy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -179,12 +179,21 @@ export function TabulatorScores({
   tieBreak?: TieBreak;
 }) {
   const live = useTabulatorLiveSnapshot();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlFocusSetId = searchParams.get("set");
+
   const resolvedSetColumns = live?.setColumns ?? setColumns;
   const resolvedSetTotals = live?.setTotals ?? setTotals;
   const resolvedFocusCriteria = live?.focusCriteria ?? focusCriteria;
   const resolvedJudgeColumns = live?.judgeColumns ?? judgeColumns;
   const resolvedJudgeMatrix = live?.judgeMatrix ?? judgeMatrix;
-  const resolvedFocusSetId = live?.focusSetId ?? focusSetId;
+  const validUrlFocusSetId =
+    urlFocusSetId && resolvedSetColumns.some((set) => set.id === urlFocusSetId)
+      ? urlFocusSetId
+      : null;
+  const resolvedFocusSetId = validUrlFocusSetId ?? live?.focusSetId ?? focusSetId;
   const resolvedActiveRound = live?.activeRound ?? activeRound;
   const resolvedCarriedFromRounds = live?.carriedFromRounds ?? carriedFromRounds;
   const resolvedFinalRankings = live?.finalRankings ?? finalRankings;
@@ -192,8 +201,6 @@ export function TabulatorScores({
   const resolvedRankOrder = live?.rankOrder ?? rankOrder;
   const resolvedTieBreak = live?.tieBreak ?? tieBreak;
 
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const [weighted, setWeighted] = useState(true);
   const [activeTab, setActiveTab] = useState(() =>
     resolvedRankOrder ? "rankorder" : "standings",
@@ -225,7 +232,7 @@ export function TabulatorScores({
   function selectFocusSet(setId: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("set", setId);
-    router.push(`?${params.toString()}`, { scroll: false });
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }
 
   function display(raw: number | null, weight: number): number | null {

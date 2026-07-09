@@ -1,0 +1,921 @@
+/**
+ * Print report styles — loaded only on /tabulator/.../print routes.
+ * Uses hardcoded hex colors (not CSS variables) so dark mode and PDF export
+ * always render the same as the on-screen preview.
+ */
+
+.rpt-page-root,
+.rpt-page-root * {
+  -webkit-print-color-adjust: economy;
+  print-color-adjust: economy;
+}
+
+/* Brand accents that must print in color */
+.rpt-doc-brand-bar,
+.rpt-thead-row,
+.rpt-round-banner,
+.rpt-medal-gold,
+.rpt-medal-silver,
+.rpt-medal-bronze,
+.rpt-tbody-row-advance {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.rpt-page-root {
+  min-height: 100vh;
+  padding: 2rem 1.5rem 3rem;
+  color-scheme: light;
+  background-color: #ffffff;
+  color: #0f1f3d;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+body:has(.rpt-page-root) {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #0f1f3d !important;
+}
+
+.rpt-document {
+  background-color: #ffffff;
+  color: #0f1f3d;
+  border: 1px solid rgb(201 162 39 / 0.4);
+  border-radius: 1rem;
+  padding: 0;
+  overflow: hidden;
+  box-shadow:
+    0 1px 2px rgb(15 31 61 / 0.06),
+    0 12px 40px rgb(15 31 61 / 0.1);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.55;
+}
+
+/* ── Branded header ─────────────────────────────────────────────────────── */
+
+.rpt-doc-header {
+  position: relative;
+  break-after: avoid;
+}
+
+.rpt-doc-brand-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: linear-gradient(135deg, #0f1f3d 0%, #1a3058 55%, #243d6b 100%);
+  padding: 0.55rem 1.5rem;
+  border-bottom: 2px solid #c9a227;
+}
+
+.rpt-doc-brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rpt-doc-brand-logo {
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 0.375rem;
+}
+
+.rpt-doc-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  text-align: left;
+}
+
+.rpt-doc-brand-name {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  line-height: 1.1;
+}
+
+.rpt-doc-brand-tagline {
+  font-size: 0.55rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.65);
+}
+
+.rpt-doc-brand-seal {
+  flex-shrink: 0;
+  border: 1px solid #c9a227;
+  border-radius: 9999px;
+  padding: 0.25rem 0.75rem;
+  background: rgb(255 255 255 / 0.08);
+}
+
+.rpt-doc-brand-seal-inner {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #e8c547;
+  white-space: nowrap;
+}
+
+.rpt-doc-header-body {
+  padding: 1rem 1.75rem 0.85rem;
+  text-align: center;
+}
+
+.rpt-doc-header-ornament {
+  height: 2px;
+  margin: 0 auto 0.75rem;
+  max-width: 9rem;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #c9a227 25%,
+    #e8c547 50%,
+    #c9a227 75%,
+    transparent 100%
+  );
+}
+
+.rpt-doc-logo-frame {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+.rpt-doc-event-logo {
+  width: 3.75rem !important;
+  height: 3.75rem !important;
+  margin: 0 !important;
+  padding: 0.25rem;
+  border: 2px solid #c9a227 !important;
+  border-radius: 9999px !important;
+  background: #ffffff !important;
+  box-shadow:
+    0 0 0 2px #e8e4dc,
+    0 2px 10px rgb(15 31 61 / 0.08);
+  object-fit: contain;
+}
+
+.rpt-doc-logo-placeholder {
+  display: flex;
+  width: 3.75rem;
+  height: 3.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #c9a227;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow:
+    0 0 0 2px #e8e4dc,
+    0 2px 10px rgb(15 31 61 / 0.06);
+}
+
+.rpt-doc-logo-placeholder-star {
+  font-size: 1.25rem;
+  color: #b8860b;
+  line-height: 1;
+}
+
+.rpt-doc-eyebrow-secondary {
+  margin-top: 0.1rem;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5c6478;
+}
+
+.rpt-doc-title {
+  margin-top: 0.35rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.65rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: #0f1f3d;
+}
+
+.rpt-doc-subtitle {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5c6478;
+}
+
+.rpt-doc-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.4rem;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #5c6478;
+}
+
+.rpt-doc-header-rule {
+  height: 2px;
+  margin-top: 0.75rem;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c9a227 10%,
+    #0f1f3d 50%,
+    #c9a227 90%,
+    transparent
+  );
+}
+
+/* ── Body & sections ────────────────────────────────────────────────────── */
+
+.rpt-doc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1.25rem 1.75rem 1.75rem;
+}
+
+.rpt-doc-body > section,
+.rpt-doc-body > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.rpt-doc-body > section + .rpt-signature-block {
+  margin-top: 0.25rem;
+}
+
+.rpt-page-root .rpt-doc-body > div.grid {
+  gap: 0.5rem;
+}
+
+.rpt-round-banner {
+  border-left: 5px solid #c9a227;
+  background: linear-gradient(90deg, #0f1f3d 0%, #1a3058 100%);
+  padding: 0.85rem 1.25rem;
+  color: #ffffff;
+  margin-bottom: 0.25rem;
+}
+
+.rpt-round-banner-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #e8c547;
+}
+
+.rpt-round-banner-title {
+  margin-top: 0.15rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: #ffffff;
+}
+
+.rpt-section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 2px solid #c9a227;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.rpt-section-title {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #0f1f3d;
+}
+
+.rpt-section-subtitle {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: #5c6478;
+}
+
+/* ── Tables ─────────────────────────────────────────────────────────────── */
+
+.rpt-page-root table.rpt-table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  margin-top: 0.25rem;
+}
+
+.rpt-page-root .rpt-table thead {
+  display: table-header-group;
+}
+
+.rpt-page-root .rpt-table tbody {
+  display: table-row-group;
+}
+
+.rpt-page-root .rpt-table tr {
+  display: table-row;
+}
+
+.rpt-page-root .rpt-table th,
+.rpt-page-root .rpt-table td {
+  display: table-cell;
+}
+
+.rpt-table-caption {
+  caption-side: bottom;
+  padding-top: 0.65rem;
+  text-align: left;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: #5c6478;
+}
+
+.rpt-thead-row {
+  border-bottom: 2px solid #c9a227;
+  background-color: #0f1f3d;
+}
+
+.rpt-th {
+  padding: 0.7rem 1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffffff;
+  text-align: left;
+}
+
+.rpt-th-left {
+  text-align: left;
+}
+
+.rpt-th-right {
+  text-align: right;
+}
+
+.rpt-tbody-row {
+  border-bottom: 1px solid rgb(15 31 61 / 0.12);
+}
+
+.rpt-tbody-row-alt {
+  background-color: #fafafa;
+}
+
+.rpt-tbody-row-advance {
+  background-color: #ecfdf5;
+}
+
+.rpt-td {
+  padding: 0.7rem 1rem;
+  vertical-align: middle;
+  line-height: 1.45;
+  color: #0f1f3d;
+}
+
+.rpt-td-mono {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+}
+
+.rpt-td-name {
+  font-weight: 500;
+  font-size: 0.9375rem;
+}
+
+.rpt-td-muted {
+  color: #5c6478;
+}
+
+.rpt-td-subtle {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: #5c6478;
+}
+
+.rpt-td-right {
+  text-align: right;
+}
+
+.rpt-td-value {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #0f1f3d;
+}
+
+/* ── Medals & badges ────────────────────────────────────────────────────── */
+
+.rpt-medal {
+  display: inline-flex;
+  width: 1.625rem;
+  height: 1.625rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.rpt-medal-gold {
+  background: linear-gradient(145deg, #f0d060 0%, #b8860b 55%, #8b6914 100%);
+  color: #2c1a00;
+}
+
+.rpt-medal-silver {
+  background: linear-gradient(145deg, #e8eaed 0%, #8b919a 55%, #6b7078 100%);
+  color: #1a1d22;
+}
+
+.rpt-medal-bronze {
+  background: linear-gradient(145deg, #c4865a 0%, #8b5a2b 55%, #5c3a1e 100%);
+  color: #fff8f0;
+}
+
+.rpt-rank-plain {
+  display: inline-block;
+  width: 1.625rem;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rpt-advance-badge {
+  display: inline-block;
+  border: 1px solid #047857;
+  border-radius: 0.2rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #047857;
+  background-color: rgb(255 255 255 / 0.65);
+}
+
+.rpt-advance-cutoff {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 2px dashed #047857;
+  padding: 0.45rem 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #047857;
+}
+
+.rpt-advance-cutoff-line {
+  flex: 1;
+  border-top: 1px dashed rgb(4 120 87 / 0.55);
+}
+
+/* ── Signatures & footer ────────────────────────────────────────────────── */
+
+.rpt-signature-block {
+  margin-top: 0.35rem;
+  break-inside: avoid;
+  border-top: 2px solid #c9a227;
+  padding: 0.55rem 0 0;
+}
+
+.rpt-signature-label {
+  margin-bottom: 3.25rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5c6478;
+}
+
+.rpt-signature-empty {
+  text-align: center;
+  font-size: 0.875rem;
+  font-style: italic;
+  color: #5c6478;
+}
+
+.rpt-signature-grid {
+  display: grid;
+  row-gap: 1.75rem;
+  column-gap: 2.75rem;
+  justify-content: center;
+}
+
+.rpt-signature-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 3rem;
+}
+
+.rpt-signature-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 2rem;
+}
+
+.rpt-signature-slot {
+  display: grid;
+  gap: 0;
+  padding: 0 0.65rem;
+}
+
+.rpt-signature-name {
+  text-align: center;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #0f1f3d;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.rpt-signature-line {
+  margin: 0.15rem 0 0.1rem;
+  border-bottom: 1px solid #0f1f3d;
+}
+
+.rpt-signature-role {
+  text-align: center;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #b8860b;
+  margin: 0;
+}
+
+.rpt-doc-footer {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  background: #ffffff;
+  margin-top: 0.75rem;
+}
+
+.rpt-doc-footer-rule {
+  height: 2px;
+  margin: 0 1.75rem;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #c9a227 10%,
+    #0f1f3d 50%,
+    #c9a227 90%,
+    transparent
+  );
+}
+
+.rpt-doc-footer-text {
+  margin: 0;
+  padding: 0.65rem 1.75rem 0.85rem;
+  text-align: center;
+  font-size: 0.6rem;
+  line-height: 1.45;
+  color: #5c6478;
+}
+
+.rpt-doc-footer-code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #b8860b;
+}
+
+.rpt-break-avoid {
+  break-inside: avoid;
+}
+
+.rpt-weight-pill {
+  display: inline-block;
+  border: 1px solid #c9a227;
+  border-radius: 9999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #b8860b;
+  background-color: #ffffff;
+}
+
+.rpt-set-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  border-bottom: 2px solid #c9a227;
+  padding-bottom: 0.35rem;
+}
+
+.rpt-set-header-title {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0f1f3d;
+}
+
+.rpt-set-header-meta {
+  font-size: 0.75rem;
+  color: #5c6478;
+}
+
+.rpt-empty-state {
+  padding: 0.5rem 0;
+  text-align: center;
+  font-size: 0.875rem;
+  font-style: italic;
+  color: #5c6478;
+}
+
+.rpt-page-toolbar a,
+.rpt-page-toolbar span,
+.rpt-page-toolbar label {
+  color: #5c6478;
+}
+
+@media print {
+  @page {
+    size: 8.5in 13in;
+    margin: 0.2in;
+  }
+
+  body,
+  body:has(.rpt-page-root) {
+    background-color: #ffffff !important;
+    color: #0f1f3d !important;
+    background-image: none !important;
+  }
+
+  .rpt-page-root {
+    min-height: auto;
+    padding: 0;
+    background: #ffffff !important;
+  }
+
+  .rpt-document {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: calc(13in - 0.4in);
+    box-shadow: none;
+    border: 0;
+    border-radius: 0;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .rpt-doc-header {
+    flex-shrink: 0;
+  }
+
+  .rpt-doc-brand-bar {
+    padding: 0.45rem 0.5in;
+  }
+
+  .rpt-doc-brand-logo {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .rpt-doc-brand-name {
+    font-size: 0.95rem;
+  }
+
+  .rpt-doc-brand-seal {
+    padding: 0.2rem 0.65rem;
+  }
+
+  .rpt-doc-brand-seal-inner {
+    font-size: 0.55rem;
+    letter-spacing: 0.04em;
+  }
+
+  .rpt-doc-header-body {
+    padding: 0.65rem 0.5in 0.55rem;
+  }
+
+  .rpt-doc-header-ornament {
+    margin-bottom: 0.5rem;
+    max-width: 8rem;
+  }
+
+  .rpt-doc-logo-frame {
+    margin-bottom: 0.4rem;
+  }
+
+  .rpt-doc-event-logo,
+  .rpt-doc-logo-placeholder {
+    width: 3.25rem !important;
+    height: 3.25rem !important;
+    box-shadow: none !important;
+  }
+
+  .rpt-doc-logo-placeholder-star {
+    font-size: 1.1rem;
+  }
+
+  .rpt-doc-eyebrow-secondary {
+    font-size: 0.55rem;
+    letter-spacing: 0.05em;
+  }
+
+  .rpt-doc-title {
+    font-size: 1.45rem;
+    margin-top: 0.25rem;
+  }
+
+  .rpt-doc-subtitle {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    margin-top: 0.2rem;
+  }
+
+  .rpt-doc-meta-row {
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+  }
+
+  .rpt-doc-header-rule {
+    margin-top: 0.5rem;
+    height: 2px;
+  }
+
+  .rpt-doc-body {
+    flex: 0 0 auto;
+    gap: 0.4rem;
+    padding: 0.6rem 0.5in 0.25rem;
+    break-before: avoid;
+  }
+
+  .rpt-page-root .rpt-doc-body > div.grid {
+    gap: 0.4rem;
+  }
+
+  .rpt-doc-body > section + .rpt-signature-block {
+    margin-top: 0.2rem;
+  }
+
+  .rpt-section-header {
+    padding-bottom: 0.35rem;
+    margin-bottom: 0.1rem;
+  }
+
+  .rpt-section-title {
+    font-size: 0.95rem;
+  }
+
+  .rpt-section-subtitle {
+    font-size: 0.72rem;
+  }
+
+  .rpt-page-root table.rpt-table {
+    font-size: 0.85rem;
+  }
+
+  .rpt-th {
+    padding: 0.55rem 0.65rem;
+    font-size: 0.65rem;
+  }
+
+  .rpt-td {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.82rem;
+    line-height: 1.4;
+  }
+
+  .rpt-td-name {
+    font-size: 0.85rem;
+  }
+
+  .rpt-td-mono {
+    font-size: 0.8rem;
+  }
+
+  .rpt-tbody-row-alt {
+    background: #fafafa !important;
+  }
+
+  .rpt-medal {
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: 0.7rem;
+  }
+
+  .rpt-rank-plain {
+    width: 1.5rem;
+    font-size: 0.82rem;
+  }
+
+  .rpt-advance-badge {
+    font-size: 0.55rem;
+    padding: 0.08rem 0.3rem;
+  }
+
+  .rpt-advance-cutoff {
+    padding: 0.35rem 0;
+    font-size: 0.62rem;
+  }
+
+  .rpt-signature-block {
+    margin-top: 0.35rem;
+    padding: 0.55rem 0.5in 1.2rem;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .rpt-doc-footer {
+    flex-shrink: 0;
+    margin-top: auto;
+  }
+
+  .rpt-signature-label {
+    margin-bottom: 3rem;
+    font-size: 0.7rem;
+  }
+
+  .rpt-signature-grid {
+    row-gap: 1.6rem;
+    column-gap: 2.5rem;
+  }
+
+  .rpt-signature-grid--3 {
+    column-gap: 2.85rem;
+  }
+
+  .rpt-signature-grid--4 {
+    column-gap: 1.85rem;
+  }
+
+  .rpt-signature-slot {
+    gap: 0;
+    padding: 0 0.55rem;
+  }
+
+  .rpt-signature-name {
+    font-size: 0.88rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 0;
+  }
+
+  .rpt-signature-line {
+    margin: 0.12rem 0 0.08rem;
+  }
+
+  .rpt-signature-role {
+    font-size: 0.55rem;
+    margin: 0;
+  }
+
+  .rpt-doc-footer-rule {
+    margin: 0.35rem 0.5in 0;
+    height: 2px;
+  }
+
+  .rpt-doc-footer-text {
+    padding: 0.5rem 0.5in 0.55rem;
+    font-size: 0.58rem;
+    line-height: 1.45;
+  }
+
+  .rpt-doc-footer-code {
+    letter-spacing: 0.03em;
+  }
+
+  .rpt-table-caption {
+    display: none;
+  }
+
+  .rpt-round-banner {
+    padding: 0.7rem 0.5in;
+  }
+
+  .rpt-round-banner-title {
+    font-size: 1.25rem;
+  }
+
+  .rpt-doc-brand-tagline {
+    display: block;
+    font-size: 0.45rem;
+    letter-spacing: 0.05em;
+  }
+}

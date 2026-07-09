@@ -128,45 +128,7 @@
   --sidebar-ring: oklch(0.68 0.16 255);
 }
 
-/* Printable documents (results reports, scoresheets) always render in the
-   light "paper" design, regardless of the app's dark-mode setting — both in
-   the on-screen preview and in the actual printed output. Rather than
-   fighting the `.dark` class on <html> via @media print (which depends on
-   the browser correctly re-evaluating the cascade at print time, and proved
-   unreliable), this class is applied directly on the document's wrapper
-   element. CSS custom properties resolve from the nearest declaring
-   ancestor, so anything inside `.print-document` gets these light values
-   regardless of `.dark` further up the tree. */
-.print-document {
-  --background: oklch(0.99 0.01 95);
-  --foreground: oklch(0.18 0.03 255);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.03 255);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.03 255);
-  --primary: oklch(0.48 0.18 255);
-  --primary-foreground: oklch(0.99 0.01 95);
-  --secondary: oklch(0.94 0.02 255);
-  --secondary-foreground: oklch(0.22 0.04 255);
-  --muted: oklch(0.95 0.02 255);
-  --muted-foreground: oklch(0.48 0.03 255);
-  --accent: oklch(0.92 0.05 255);
-  --accent-foreground: oklch(0.2 0.04 255);
-  --destructive: oklch(0.58 0.22 28);
-  --destructive-foreground: oklch(0.99 0.01 95);
-  --border: oklch(0.88 0.02 255);
-  --input: oklch(0.88 0.02 255);
-  --ring: oklch(0.55 0.18 255);
-}
-
-/* Belt-and-suspenders: also drop the page-level background tint when
-   actually printing, in case future printable surfaces sit outside
-   `.print-document`. */
-@media print {
-  body {
-    background-image: none;
-  }
-}
+/* Print report styles live in app/(print)/print-report.css */
 
 @layer base {
   * {
@@ -195,7 +157,6 @@
     letter-spacing: -0.015em;
   }
 }
-
 /* A touch of layered depth on cards so surfaces feel intentional rather
    than flat boxes. Kept very subtle and theme-aware via --shadow-color. */
 @layer components {
