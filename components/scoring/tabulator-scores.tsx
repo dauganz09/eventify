@@ -1056,22 +1056,22 @@ function rankOrderTieNote(
   }
   const peerNames = peers.map((p) => contestantLabel(p)).join(", ");
   const shared = cluster.every((c) => c.placement === row.placement);
-  const votes = ahead + behind;
+  const judgeCount = ahead + behind;
   if (shared) {
     return {
       tone: "shared",
-      text: `Tied on rank sum ${row.rankSum} with ${peerNames} — judges split ${ahead}–${behind}, so they share this place.`,
+      text: `Tied on rank sum ${row.rankSum} with ${peerNames} — split ${ahead}–${behind} on this round's own scores, so they share this place.`,
     };
   }
   if (ahead >= behind) {
     return {
       tone: "won",
-      text: `Won the tie on rank sum ${row.rankSum} vs ${peerNames} — majority ${ahead}–${behind} of ${votes} judge votes.`,
+      text: `Won the tie on rank sum ${row.rankSum} vs ${peerNames} — ranked higher by ${ahead} of ${judgeCount} judges in this round's own scores.`,
     };
   }
   return {
     tone: "lost",
-    text: `Lost the tie on rank sum ${row.rankSum} to ${peerNames} — majority ${behind}–${ahead} of ${votes} judge votes.`,
+    text: `Lost the tie on rank sum ${row.rankSum} to ${peerNames} — ranked higher by ${behind} of ${judgeCount} judges in this round's own scores.`,
   };
 }
 

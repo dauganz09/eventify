@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { db } from "@/db";
 import { judgeAssignments, judges, roundGroups, rounds, tieBreakBallots, tieBreakVotes } from "@/db/schema";
-import { resolveBallots } from "@/lib/scoring/ranking";
+import { resolveBallots, tieKeyFor } from "@/lib/scoring/ranking";
 import { saveTieBreak, type TieBreakScope } from "@/lib/scoring/tie-break-service";
 
 export type TieBreakVoteStatus = "open" | "resolved" | "cancelled";
@@ -106,9 +106,11 @@ export async function resolveEligibleJudges(
 }
 
 /**
- * Opens a live vote for one tied cluster. Any other open vote for the same
- * (eventId, scope, contextId) "slot" is cancelled first — only one live vote
- * per tie decision at a time.
+ * Opens a live vote for one tied cluster. Any other open vote for the exact
+ * same (eventId, scope, contextId, tied contestant set) is cancelled first —
+ * only one live vote per tie decision at a time. A different cluster tied in
+ * the same round (e.g. a separate pair fighting for a different rank) keeps
+ * its own open vote untouched.
  */
 export async function openVote(params: {
   database: typeof db;
@@ -133,7 +135,11 @@ export async function openVote(params: {
 
   return database.transaction(async (tx) => {
     const openRows = await tx
-      .select({ id: tieBreakVotes.id, contextId: tieBreakVotes.contextId })
+      .select({
+        id: tieBreakVotes.id,
+        contextId: tieBreakVotes.contextId,
+        tiedContestantIds: tieBreakVotes.tiedContestantIds,
+      })
       .from(tieBreakVotes)
       .where(
         and(
@@ -142,7 +148,10 @@ export async function openVote(params: {
           eq(tieBreakVotes.status, "open"),
         ),
       );
-    const staleIds = openRows.filter((row) => row.contextId === contextId).map((row) => row.id);
+    const key = tieKeyFor(tiedContestantIds);
+    const staleIds = openRows
+      .filter((row) => row.contextId === contextId && tieKeyFor(row.tiedContestantIds) === key)
+      .map((row) => row.id);
     if (staleIds.length > 0) {
       await tx
         .update(tieBreakVotes)

@@ -938,9 +938,17 @@ export async function getEventTabulatorDetail(params: {
   // setId -> contestantId -> judgeId -> weighted total (kept for rank-order).
   const perJudgeBySet = new Map<string, Map<string, Map<string, number>>>();
   for (const set of setSummaries) {
+    // Only count scores from judges currently assigned to this set — a judge
+    // reassigned away after scoring shouldn't keep pulling weight in totals or
+    // rank-order, matching the "By judge & criteria" tab's own scoping.
+    // Manual-entry sets are always written by the (non-real) system judge, so
+    // assignment scoping doesn't apply to them.
+    const eligibleJudgeIds = set.isManualEntry ? null : new Set(judgesForSet(set.id));
+
     // contestantId -> judgeId -> weighted total
     const perJudge = new Map<string, Map<string, number>>();
     for (const score of scoresBySet.get(set.id) ?? []) {
+      if (eligibleJudgeIds && !eligibleJudgeIds.has(score.judgeId)) continue;
       const weighted = score.value * (weightForCriterion(score.criterionId, set.id) / 100);
       const byJudge = perJudge.get(score.contestantId) ?? new Map<string, number>();
       byJudge.set(score.judgeId, (byJudge.get(score.judgeId) ?? 0) + weighted);
