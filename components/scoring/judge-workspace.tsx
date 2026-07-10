@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   Delete,
   Grid3x3,
@@ -27,13 +28,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { SyncStatusBadge } from "@/components/scoring/sync-status-badge";
@@ -169,6 +163,74 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+// ── Score picker ─────────────────────────────────────────────────────────────
+// Replaces the anchored-popover <Select> for score input specifically: on a
+// small tablet a popover's own text-sm options are too cramped to tap
+// reliably. This instead mirrors how a native <select> behaves on
+// mobile/tablet browsers — tapping the trigger opens a full dialog of large,
+// unambiguous tap targets rather than a tiny floating list.
+function ScorePicker({
+  value,
+  options,
+  title,
+  placeholder = "Select a score",
+  disabled = false,
+  onChange,
+  className,
+}: {
+  value: number | null;
+  options: number[];
+  title: string;
+  placeholder?: string;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={title}
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+        className={`flex h-14 w-full items-center justify-between gap-2 rounded-lg border border-input bg-transparent px-4 text-lg font-semibold transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50 ${className ?? ""}`}
+      >
+        <span className={value == null ? "font-normal text-muted-foreground" : ""}>
+          {value != null ? value : placeholder}
+        </span>
+        <ChevronDown className="size-5 shrink-0 text-muted-foreground" />
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="flex max-h-[80dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-sm">
+          <DialogHeader className="shrink-0 border-b p-4 text-left">
+            <DialogTitle className="text-lg">{title}</DialogTitle>
+          </DialogHeader>
+          <div className="grid min-h-0 flex-1 grid-cols-3 gap-2 overflow-y-auto p-3 sm:grid-cols-4">
+            {options.map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                }}
+                className={`flex h-16 items-center justify-center rounded-lg text-2xl font-bold tabular-nums transition-all active:scale-95 ${
+                  value === opt
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/40 hover:bg-accent"
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function JudgeWorkspace({
@@ -190,7 +252,7 @@ export function JudgeWorkspace({
   const [deviceId] = useState(getDeviceId);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
-  const [inputMode, setInputMode] = useState<ScoreInputMode>("slider");
+  const [inputMode, setInputMode] = useState<ScoreInputMode>("dropdown");
   const [confirmFinalize, setConfirmFinalize] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [unlockRequestStatus, setUnlockRequestStatus] = useState(initialUnlockRequestStatus);
@@ -436,9 +498,14 @@ export function JudgeWorkspace({
           clientCreatedAt,
           operation: "submitted",
         };
+        // Durably enqueued before we touch the network, so the card can close
+        // instantly — the score survives an accidental tab close even if the
+        // sync below hasn't run yet. Debounced (not awaited) the same way the
+        // direct-scoring flow syncs, so confirming several cards back-to-back
+        // coalesces into one round-trip instead of one per card.
         await outbox.enqueue(payload, { sync: false });
       }
-      await outbox.syncPending();
+      scheduleSync();
       // Persist submitted values locally so re-opening the card shows them.
       setLocalScores((prev) => {
         const updated = [...prev];
@@ -459,9 +526,9 @@ export function JudgeWorkspace({
       });
       setDoneIds((prev) => new Set(prev).add(contestantId));
       setActiveId(null);
-      toast.success("Scores submitted.");
+      toast.success("Scores saved.");
     } catch {
-      toast.error("Failed to submit scores.");
+      toast.error("Failed to save scores.");
     }
   }
 
@@ -561,8 +628,7 @@ export function JudgeWorkspace({
           ) : (
             contestants.length > 0 && (
               <Button
-                size="sm"
-                className="gap-1.5"
+                className="h-10 gap-1.5 px-4"
                 onClick={() => setConfirmFinalize(true)}
                 disabled={
                   finalizing || !allScored || outbox.pendingCount > 0 || outbox.isSyncing
@@ -743,7 +809,7 @@ export function JudgeWorkspace({
                   : "Finished scoring? Submit & lock your scores so they can't be changed."}
             </p>
             <Button
-              className="gap-1.5"
+              className="h-14 gap-2 px-6 text-base font-semibold"
               onClick={() => setConfirmFinalize(true)}
               disabled={finalizing || !allScored || outbox.pendingCount > 0 || outbox.isSyncing}
               title={
@@ -754,7 +820,7 @@ export function JudgeWorkspace({
                     : undefined
               }
             >
-              <Lock className="size-4" />
+              <Lock className="size-5" />
               Submit &amp; lock
             </Button>
           </div>
@@ -855,16 +921,20 @@ export function JudgeWorkspace({
           <DialogFooter>
             <DialogClose
               render={
-                <Button variant="outline" disabled={finalizing}>
+                <Button variant="outline" disabled={finalizing} className="h-12 text-base">
                   Keep scoring
                 </Button>
               }
             />
-            <Button onClick={handleFinalize} disabled={finalizing} className="gap-1.5">
+            <Button
+              onClick={handleFinalize}
+              disabled={finalizing}
+              className="h-12 gap-1.5 text-base font-semibold"
+            >
               {finalizing ? (
-                <Loader2 className="size-4 animate-spin" />
+                <Loader2 className="size-5 animate-spin" />
               ) : (
-                <Lock className="size-4" />
+                <Lock className="size-5" />
               )}
               Submit &amp; lock
             </Button>
@@ -1060,11 +1130,11 @@ function DirectScoreRow({
           )}
         </div>
         <div className="min-w-0">
-          <p className="truncate text-xl font-bold leading-tight">
+          <p className="truncate text-2xl font-bold leading-tight">
             {contestant.displayName}
           </p>
           {contestant.displayNumber && (
-            <p className="text-base font-semibold text-muted-foreground">
+            <p className="text-xl font-semibold text-muted-foreground">
               #{contestant.displayNumber}
             </p>
           )}
@@ -1078,26 +1148,16 @@ function DirectScoreRow({
             {scored ? "Locked" : "Not scored"}
           </div>
         ) : inputMode === "dropdown" ? (
-          <Select
-            value={scored ? String(value) : undefined}
-            onValueChange={(next) => {
-              const v = Number(next);
-              if (!Number.isFinite(v)) return;
+          <ScorePicker
+            className="flex-1"
+            title={criterion.name}
+            value={scored ? (value as number) : null}
+            options={buildOptions(min, max, step)}
+            onChange={(v) => {
               setValue(v);
               onCommit(v);
             }}
-          >
-            <SelectTrigger className="h-11 flex-1">
-              <SelectValue placeholder="Select a score" />
-            </SelectTrigger>
-            <SelectContent>
-              {buildOptions(min, max, step).map((opt) => (
-                <SelectItem key={opt} value={String(opt)}>
-                  {opt}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         ) : (
           <div className="flex-1">
             <Slider
@@ -1180,10 +1240,11 @@ function ScoringDialog({
   }
 
   return (
-    <DialogContent className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
-      {/* Contestant banner */}
-      <div className="flex shrink-0 items-center gap-4 border-b bg-muted/40 p-5">
-        <div className="size-16 shrink-0 overflow-hidden rounded-full border-2 border-card bg-muted shadow">
+    <DialogContent className="flex max-h-[97dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+      {/* Contestant banner — kept compact so small tablets (e.g. Galaxy Tab
+          A7) leave as much room as possible for the criteria list below. */}
+      <div className="flex shrink-0 items-center gap-3 border-b bg-muted/40 p-3">
+        <div className="size-12 shrink-0 overflow-hidden rounded-full border-2 border-card bg-muted shadow">
           {contestant.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -1192,7 +1253,7 @@ function ScoringDialog({
               className="size-full object-cover"
             />
           ) : (
-            <div className="flex size-full items-center justify-center text-lg font-bold text-muted-foreground">
+            <div className="flex size-full items-center justify-center text-base font-bold text-muted-foreground">
               {initials(contestant.displayName)}
             </div>
           )}
@@ -1203,11 +1264,11 @@ function ScoringDialog({
               {contestant.category}
             </p>
           )}
-          <DialogTitle className="truncate text-xl font-bold">
+          <DialogTitle className="truncate text-2xl font-bold">
             {contestant.displayName}
           </DialogTitle>
           {contestant.displayNumber && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-lg font-semibold text-muted-foreground">
               Contestant #{contestant.displayNumber}
             </p>
           )}
@@ -1305,7 +1366,7 @@ function ScoringDialog({
           />
         ) : (
         <>
-          <div className="min-h-0 flex-1 space-y-7 overflow-y-auto p-6">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             {criteria.length === 0 && (
               <p className="text-center text-sm text-muted-foreground">
                 No criteria configured for this round.
@@ -1315,7 +1376,7 @@ function ScoringDialog({
               const { min, max, step } = criterionRange(criterion);
               const value = values[criterion.id] ?? min;
               return (
-                <div key={criterion.id} className="space-y-3">
+                <div key={criterion.id} className="space-y-2">
                   <div className="flex items-end justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-bold leading-tight">
@@ -1332,26 +1393,17 @@ function ScoringDialog({
                     </span>
                   </div>
                   {inputMode === "dropdown" ? (
-                    <Select
-                      value={String(value)}
-                      onValueChange={(next) =>
+                    <ScorePicker
+                      title={criterion.name}
+                      value={value}
+                      options={buildOptions(min, max, step)}
+                      onChange={(v) =>
                         setValues((prev) => ({
                           ...prev,
-                          [criterion.id]: Number(next),
+                          [criterion.id]: v,
                         }))
                       }
-                    >
-                      <SelectTrigger className="h-11 w-full text-base">
-                        <SelectValue placeholder="Select a score" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {buildOptions(min, max, step).map((opt) => (
-                          <SelectItem key={opt} value={String(opt)}>
-                            {opt}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    />
                   ) : (
                     <>
                       <Slider
@@ -1380,14 +1432,14 @@ function ScoringDialog({
             <Button
               variant="outline"
               onClick={onCancel}
-              className="h-12 flex-1"
+              className="h-16 flex-1 text-base"
             >
               Cancel
             </Button>
             <Button
               onClick={() => setPhase("confirm")}
               disabled={criteria.length === 0}
-              className="h-12 flex-1"
+              className="h-16 flex-1 text-base font-semibold"
             >
               Submit scores
             </Button>
@@ -1406,10 +1458,10 @@ function ScoringDialog({
             {criteria.map((criterion) => (
               <div
                 key={criterion.id}
-                className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5"
+                className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3"
               >
                 <span className="font-medium">{criterion.name}</span>
-                <span className="text-lg font-bold tabular-nums text-primary">
+                <span className="text-2xl font-bold tabular-nums text-primary">
                   {values[criterion.id] ?? 0}
                 </span>
               </div>
@@ -1417,9 +1469,9 @@ function ScoringDialog({
             {showCriteriaTotals && (
               <div className="flex items-center justify-between rounded-lg border-2 border-primary/30 bg-primary/5 px-4 py-3">
                 <span className="font-semibold">Total</span>
-                <span className="text-lg font-bold tabular-nums text-primary">
+                <span className="text-3xl font-bold tabular-nums text-primary">
                   {formatScoreTotal(scoreTotals.current)}
-                  <span className="text-sm font-medium text-muted-foreground">
+                  <span className="text-base font-medium text-muted-foreground">
                     {" "}
                     / {formatScoreTotal(scoreTotals.max)}
                   </span>
@@ -1432,17 +1484,17 @@ function ScoringDialog({
               variant="outline"
               onClick={() => setPhase("score")}
               disabled={submitting}
-              className="h-12 flex-1 gap-1.5"
+              className="h-16 flex-1 gap-1.5 text-base"
             >
-              <ChevronLeft className="size-4" />
+              <ChevronLeft className="size-5" />
               Back
             </Button>
             <Button
               onClick={confirmSubmit}
               disabled={submitting}
-              className="h-12 flex-1 gap-1.5"
+              className="h-16 flex-1 gap-1.5 text-base font-semibold"
             >
-              {submitting && <Loader2 className="size-4 animate-spin" />}
+              {submitting && <Loader2 className="size-5 animate-spin" />}
               Confirm &amp; submit
             </Button>
           </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   deleteOperation,
   discardLockedConflicts,
@@ -81,13 +81,21 @@ export function useOfflineOutbox() {
 
   const refreshPendingCount = refreshCounts;
 
+  // Guards against overlapping syncPending() calls (e.g. the debounced
+  // per-card sync and the periodic retry firing close together on a slow
+  // connection). A ref rather than isSyncing state because state would be
+  // stale inside this callback's own closure.
+  const syncInFlightRef = useRef(false);
+
   const syncPending = useCallback(async () => {
     if (typeof navigator === "undefined") return;
     if (!navigator.onLine) return;
+    if (syncInFlightRef.current) return;
 
     const pendingOperations = await listPendingOperations();
     if (pendingOperations.length === 0) return;
 
+    syncInFlightRef.current = true;
     setIsSyncing(true);
     let hadError = false;
     let lastError: string | null = null;
@@ -197,6 +205,7 @@ export function useOfflineOutbox() {
       }
     } finally {
       setIsSyncing(false);
+      syncInFlightRef.current = false;
     }
 
     await refreshCounts();
@@ -240,9 +249,35 @@ export function useOfflineOutbox() {
     return () => window.clearTimeout(timeoutId);
   }, [isOnline, syncPending]);
 
+  // Fallback retry loop: `navigator.onLine` only reflects "has a network
+  // interface," not "can actually reach the server" — flaky venue wifi often
+  // reports online while requests time out. Without this, a sync that fails
+  // on the last score of a round sits in the outbox until the judge enters
+  // another score (which re-triggers the debounce) or the browser fires a
+  // genuine offline->online transition. Scoped to only exist while there's a
+  // backlog, so it's a no-op the rest of the time — no interval is even
+  // created once everything's synced.
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const intervalId = window.setInterval(() => {
+      void syncPending();
+    }, 12000);
+    return () => window.clearInterval(intervalId);
+  }, [pendingCount, syncPending]);
+
   useEffect(() => {
     void discardLockedConflicts().then(() => refreshCounts());
   }, [refreshCounts]);
+
+  // Ask the browser not to evict this origin's IndexedDB under storage
+  // pressure or (on Safari/iOS) after a period of the app being unopened.
+  // Best-effort: unsynced scores already survive in the outbox regardless,
+  // this just reduces the chance a tablet sitting idle between events loses
+  // them to eviction before the judge reopens the app.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.storage?.persist) return;
+    void navigator.storage.persist();
+  }, []);
 
   return {
     enqueue,
