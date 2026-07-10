@@ -6,6 +6,7 @@ import { Loader2, LogOut, RadioTower, Sparkles, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { JudgeTieBreakDialog, type JudgeTieBreakVote } from "@/components/scoring/judge-tie-break-dialog";
 
 /**
  * Shown to a judge when no round/set is active for them. The page re-renders
@@ -20,10 +21,12 @@ export function JudgeStandby({
   eventName,
   judgeName,
   complete = false,
+  activeTieBreakVote = null,
 }: {
   eventName: string;
   judgeName: string;
   complete?: boolean;
+  activeTieBreakVote?: JudgeTieBreakVote | null;
 }) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
@@ -50,6 +53,7 @@ export function JudgeStandby({
 
   return (
     <div className="space-y-8">
+      {activeTieBreakVote && <JudgeTieBreakDialog vote={activeTieBreakVote} />}
       <header className="flex flex-wrap items-center gap-2 text-sm">
         <span className="flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-3 shadow-sm">
           <span className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">

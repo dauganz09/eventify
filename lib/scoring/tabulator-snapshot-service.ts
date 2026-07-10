@@ -29,6 +29,8 @@ export interface TabulatorLiveSnapshot {
   advancementPreview: EventTabulatorDetail["advancementPreview"];
   rankOrder: EventTabulatorDetail["rankOrder"];
   tieBreak: EventTabulatorDetail["tieBreak"];
+  tieBreaks: EventTabulatorDetail["tieBreaks"];
+  openTieBreakVotes: EventTabulatorDetail["openTieBreakVotes"];
 }
 
 async function getSubmissionCounts(
@@ -166,6 +168,8 @@ export function toTabulatorLiveSnapshot(
     advancementPreview: detail.advancementPreview,
     rankOrder: detail.rankOrder,
     tieBreak: detail.tieBreak,
+    tieBreaks: detail.tieBreaks,
+    openTieBreakVotes: detail.openTieBreakVotes,
   };
 }
 
