@@ -42,7 +42,22 @@ export function CustomPrintResultsView({
 
   const valueLabel = results.roundScoreMode === "sum" ? "Points" : "Average";
   const judgeCols = showJudges ? results.judges : [];
-  const colCount = 3 + 1 + judgeCols.length + 1;
+
+  // Per-set score behind the combined total, keyed by set so the combined
+  // ranking table can show each contestant's score in every selected set.
+  const setValueById = new Map(
+    results.sets.map((set) => [
+      set.id,
+      new Map(set.ranking.map((row) => [row.contestantId, row.value])),
+    ]),
+  );
+  const setCols = results.setLabels.map((set) => ({
+    id: set.id,
+    label: set.label,
+    valueOf: (contestantId: string) => setValueById.get(set.id)?.get(contestantId) ?? null,
+  }));
+
+  const colCount = 3 + 1 + setCols.length + judgeCols.length + 1;
 
   const meta = (
     <>
@@ -123,12 +138,20 @@ export function CustomPrintResultsView({
             ) : (
               <PrintTable
                 caption={
-                  judgeCols.length > 0 ? (
-                    <>
-                      Columns show each judge&apos;s own score; {valueLabel.toLowerCase()} is the
-                      combined result. &ldquo;—&rdquo; means the judge did not score that contestant.
-                    </>
-                  ) : undefined
+                  <>
+                    {setCols.length > 0 && (
+                      <>
+                        Per-set columns show each contestant&apos;s score in that set;{" "}
+                        {valueLabel.toLowerCase()} is the combined result.{" "}
+                      </>
+                    )}
+                    {judgeCols.length > 0 && (
+                      <>Judge columns show that judge&apos;s own score. </>
+                    )}
+                    {(setCols.length > 0 || judgeCols.length > 0) && (
+                      <>&ldquo;—&rdquo; means not scored there.</>
+                    )}
+                  </>
                 }
               >
                 <PrintTheadRow>
@@ -138,6 +161,11 @@ export function CustomPrintResultsView({
                   <PrintTh align="right" className="w-16">
                     Sets
                   </PrintTh>
+                  {setCols.map((set) => (
+                    <PrintTh key={set.id} align="right">
+                      {set.label}
+                    </PrintTh>
+                  ))}
                   {judgeCols.map((judge) => (
                     <PrintTh key={judge.id} align="right">
                       {judge.displayName}
@@ -150,40 +178,13 @@ export function CustomPrintResultsView({
                 <PrintRankingRows
                   rows={results.ranking}
                   showScoredCount
+                  extraCols={setCols}
                   judgeCols={judgeCols}
                   colCount={colCount}
                 />
               </PrintTable>
             )}
           </section>
-
-          {results.sets.map((set) => (
-            <section key={set.id} className="grid gap-2 rpt-break-avoid">
-              <PrintSectionHeader
-                title={results.setLabels.find((s) => s.id === set.id)?.label ?? set.name}
-                subtitle="Per-set ranking (included in combined total above)"
-              />
-              {set.ranking.length === 0 ? (
-                <p className="rpt-empty-state">No scores submitted yet.</p>
-              ) : (
-                <PrintTable>
-                  <PrintTheadRow>
-                    <PrintTh>Rank</PrintTh>
-                    <PrintTh className="w-20">No.</PrintTh>
-                    <PrintTh>Contestant</PrintTh>
-                    <PrintTh align="right" className="w-24">
-                      Total
-                    </PrintTh>
-                  </PrintTheadRow>
-                  <PrintRankingRows
-                    rows={set.ranking}
-                    judgeCols={[]}
-                    colCount={4}
-                  />
-                </PrintTable>
-              )}
-            </section>
-          ))}
         </PrintDocumentBody>
 
         <PrintSignatureBlock judges={results.judges} />

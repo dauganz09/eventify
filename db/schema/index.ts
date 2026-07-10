@@ -657,6 +657,90 @@ export const unlockRequests = pgTable(
   ],
 );
 
+export const tieBreakScope = pgEnum("tie_break_scope", ["standings", "advancement", "rank_order"]);
+export const tieBreakMethod = pgEnum("tie_break_method", ["manual", "judge_vote"]);
+
+/**
+ * A tabulator's manual resolution of a tie that survived the event's
+ * automatic tie-break (`events.config.tieBreak` / rank-order majority). One
+ * live row per distinct tied contestant set; superseded rows are deleted
+ * (not versioned here — the full history lives in `audit_logs`, mirroring the
+ * score_records/score_events split). `contextId` is null for the "standings"
+ * scope (one cumulative context) and a `round_groups.id` for "advancement"
+ * (the round the tied contestants are qualifying into) / "rank_order".
+ */
+export const tieBreaks = pgTable("tie_breaks", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: uuid("event_id")
+    .references(() => events.id, { onDelete: "cascade" })
+    .notNull(),
+  scope: tieBreakScope("scope").notNull(),
+  contextId: uuid("context_id"),
+  tiedContestantIds: jsonb("tied_contestant_ids").$type<string[]>().notNull(),
+  resolvedOrder: jsonb("resolved_order").$type<string[]>().notNull(),
+  method: tieBreakMethod("method").notNull().default("manual"),
+  note: text("note"),
+  resolvedByUserId: uuid("resolved_by_user_id").references(() => userProfiles.id, {
+    onDelete: "set null",
+  }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const tieBreakVoteStatus = pgEnum("tie_break_vote_status", ["open", "resolved", "cancelled"]);
+
+/**
+ * A tabulator-initiated "ask the judges" session for one tie — the live
+ * counterpart to a manual `tie_breaks` resolution. `eligibleJudgeIds` is
+ * frozen at open time (same snapshot philosophy as
+ * `round_groups.qualified_contestant_ids`) so who's allowed to vote can't
+ * shift mid-vote. Once every eligible judge has cast a ballot (or the
+ * tabulator force-resolves/cancels), a clean majority result is written into
+ * `tie_breaks` with `method: "judge_vote"` — this table only tracks the
+ * voting session itself, not the resolution.
+ */
+export const tieBreakVotes = pgTable("tie_break_votes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: uuid("event_id")
+    .references(() => events.id, { onDelete: "cascade" })
+    .notNull(),
+  scope: tieBreakScope("scope").notNull(),
+  contextId: uuid("context_id"),
+  tiedContestantIds: jsonb("tied_contestant_ids").$type<string[]>().notNull(),
+  eligibleJudgeIds: jsonb("eligible_judge_ids").$type<string[]>().notNull(),
+  // e.g. "rank 5" or "rank sum 8" — shown to judges so they know what they're
+  // voting on, even after a page reload (the tabulator supplies this when
+  // opening the vote, since it already has the full standings context).
+  rankLabel: text("rank_label").notNull(),
+  status: tieBreakVoteStatus("status").notNull().default("open"),
+  openedByUserId: uuid("opened_by_user_id").references(() => userProfiles.id, {
+    onDelete: "set null",
+  }),
+  openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+});
+
+/**
+ * One judge's ballot for a `tie_break_votes` session — the order they'd rank
+ * the tied contestants, best first. Unique per (voteId, judgeId) so a judge
+ * can change their mind (upsert) any time before the vote resolves.
+ */
+export const tieBreakBallots = pgTable(
+  "tie_break_ballots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    voteId: uuid("vote_id")
+      .references(() => tieBreakVotes.id, { onDelete: "cascade" })
+      .notNull(),
+    judgeId: uuid("judge_id")
+      .references(() => judges.id, { onDelete: "cascade" })
+      .notNull(),
+    orderedContestantIds: jsonb("ordered_contestant_ids").$type<string[]>().notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("tie_break_ballots_vote_judge_idx").on(table.voteId, table.judgeId)],
+);
+
 export const localCredentials = pgTable("local_credentials", {
   userId: uuid("user_id")
     .primaryKey()

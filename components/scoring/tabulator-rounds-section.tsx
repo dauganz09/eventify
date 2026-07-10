@@ -1,6 +1,7 @@
 "use client";
 
-import { CheckCircle2, Power, RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, CheckCircle2, Power, RotateCcw } from "lucide-react";
 import { ClearRoundScoresDialog } from "@/components/scoring/clear-round-scores-dialog";
 import { FinishRoundDialog } from "@/components/scoring/finish-round-dialog";
 import { useTabulatorLiveSnapshot } from "@/components/scoring/tabulator-live-context";
@@ -10,7 +11,7 @@ import {
 } from "@/app/(dashboard)/tabulator/actions";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import type { GroupSummary, SetSummary } from "@/lib/scoring/tabulator-service";
+import type { EventTabulatorDetail, GroupSummary, SetSummary } from "@/lib/scoring/tabulator-service";
 
 const LIFECYCLE_BTN =
   "inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50";
@@ -154,6 +155,48 @@ function SetRow({
   );
 }
 
+function AdvancementCutTieWarning({
+  groupId,
+  groupName,
+  advancement,
+  liveAdvancement,
+}: {
+  groupId: string;
+  groupName: string;
+  advancement: EventTabulatorDetail["advancement"];
+  liveAdvancement: EventTabulatorDetail["advancement"] | null | undefined;
+}) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Defer until hydration — live snapshot advancement can differ from the
+  // server-passed prop during the initial client render.
+  if (!mounted) return null;
+
+  const adv = liveAdvancement ?? advancement;
+  if (
+    !adv ||
+    !adv.isPreview ||
+    adv.groupId !== groupId ||
+    adv.qualifiedIds.length <= adv.count
+  ) {
+    return null;
+  }
+
+  const extra = adv.qualifiedIds.length - adv.count;
+  return (
+    <div className="flex items-start gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+      <span>
+        {extra} extra contestant{extra === 1 ? "" : "s"}{" "}
+        {extra === 1 ? "is" : "are"} tied for the last qualifying spot into {groupName}.
+        Break the tie in the standings above before activating — once activated, the
+        qualifier list freezes and can&apos;t be shrunk from here.
+      </span>
+    </div>
+  );
+}
+
 export function TabulatorRoundsSection({
   groups,
   ungroupedSets,
@@ -161,6 +204,7 @@ export function TabulatorRoundsSection({
   anyRoundActive,
   anySetActive,
   activeGroupId,
+  advancement,
 }: {
   groups: GroupSummary[];
   ungroupedSets: SetSummary[];
@@ -168,6 +212,7 @@ export function TabulatorRoundsSection({
   anyRoundActive: boolean;
   anySetActive: boolean;
   activeGroupId: string | null;
+  advancement: EventTabulatorDetail["advancement"];
 }) {
   const live = useTabulatorLiveSnapshot();
 
@@ -236,6 +281,12 @@ export function TabulatorRoundsSection({
               </div>
             )}
           </div>
+          <AdvancementCutTieWarning
+            groupId={group.id}
+            groupName={group.name}
+            advancement={advancement}
+            liveAdvancement={live?.advancement}
+          />
           <div className="grid gap-2 p-3">
             {group.sets.length === 0 ? (
               <p className="text-sm text-muted-foreground">No sets in this round.</p>

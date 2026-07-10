@@ -21,7 +21,16 @@ export type RealtimePayload =
   | { type: "judge.unlock_requested"; judgeId: string; roundId: string }
   | { type: "judge.unlock_rejected"; judgeId: string; roundId: string }
   | { type: "present.reveal"; revealed: number }
-  | { type: "results.updated" };
+  | { type: "results.updated" }
+  // Live tie-break vote lifecycle. "opened" is published once per eligible
+  // judge (judgeId set, so each judge's client can self-filter) to trigger
+  // their blocking dialog; "resolved"/"cancelled" are broadcast once, for
+  // every judge's dialog to dismiss. A cast ballot doesn't get its own event
+  // — it rides the existing `results.updated` -> live-snapshot-refresh path
+  // (openTieBreakVotes is part of that snapshot), same as any other score change.
+  | { type: "tie_break_vote.opened"; judgeId: string; voteId: string; rankLabel: string }
+  | { type: "tie_break_vote.resolved"; voteId: string }
+  | { type: "tie_break_vote.cancelled"; voteId: string };
 
 // A module-level singleton, preserved across hot reloads in dev.
 const globalForBus = globalThis as unknown as { __tabulateBus?: EventEmitter };

@@ -17,6 +17,7 @@ import {
 } from "@/db/schema";
 import { calculateContestantResults } from "@/lib/scoring/calculate";
 import {
+  applyManualOverrides,
   computeRankOrder,
   parseRoundScoreMode,
   parseScoringMethod,
@@ -25,6 +26,8 @@ import {
   type RoundScoreMode,
   type TieBreak,
 } from "@/lib/scoring/ranking";
+import { listTieBreaks, overrideMapFor } from "@/lib/scoring/tie-break-service";
+import { listOpenVotes } from "@/lib/scoring/tie-break-vote-service";
 import type { AggregationRule, CriterionConfig, SubmittedScore } from "@/lib/scoring/types";
 
 const AGGREGATION_RULES: readonly AggregationRule[] = [
@@ -205,6 +208,28 @@ export interface ManualSetRow {
   values: Record<string, number | null>;
 }
 
+/** A tabulator's manually-resolved tie, as shown in the UI. */
+export interface TieBreakSummary {
+  id: string;
+  scope: "standings" | "advancement" | "rank_order";
+  contextId: string | null;
+  tiedContestantIds: string[];
+  resolvedOrder: string[];
+  method: "manual" | "judge_vote";
+  note: string | null;
+  resolvedByName: string | null;
+}
+
+/** A currently-open "ask the judges" vote for the tabulator's live tally. */
+export interface TieBreakVoteSummary {
+  id: string;
+  scope: "standings" | "advancement" | "rank_order";
+  contextId: string | null;
+  tiedContestantIds: string[];
+  eligibleJudges: { id: string; displayName: string }[];
+  votedJudgeIds: string[];
+}
+
 /** A manual-entry (pre-event) category the tabulator types final scores into. */
 export interface ManualSet {
   id: string;
@@ -242,6 +267,8 @@ export interface EventTabulatorDetail {
    * into the next rank-order round before it is activated.
    */
   advancement: {
+    /** The round_groups.id the qualifiers are advancing into. */
+    groupId: string;
     count: number;
     qualifiedIds: string[];
     displayOrder: string;
@@ -287,6 +314,10 @@ export interface EventTabulatorDetail {
    * round is still marked active but all of its sets are finished.
    */
   advancementPreview: boolean;
+  /** The event's live manual tie-break overrides, across every scope/context. */
+  tieBreaks: TieBreakSummary[];
+  /** Currently-open "ask the judges" votes, for the tabulator's live tally. */
+  openTieBreakVotes: TieBreakVoteSummary[];
 }
 
 // ── Cumulative standings (shared by final rankings + advancement) ───────────
@@ -322,6 +353,8 @@ export function computeGroupStandings(params: {
   contestantIds: string[];
   roundScoreMode: RoundScoreMode;
   tieBreak: ReturnType<typeof parseTieBreak>;
+  /** Tabulator-resolved tie overrides (tieKeyFor(ids) -> order), if any. */
+  manualOverrides?: Map<string, string[]>;
 }): { rows: GroupStandingRow[]; useCarryOver: boolean } {
   const { totalsBySet, roundScoreMode } = params;
   const finishedGroups = [...params.groups].sort((a, b) => a.position - b.position);
@@ -371,13 +404,16 @@ export function computeGroupStandings(params: {
     };
   });
 
-  const rankMap = rankWithTieBreak(
-    unranked.map((r) => ({
-      id: r.contestantId,
-      primary: r.overall,
-      setScoresByRecency: r.roundScores.map((s) => s.score ?? 0).reverse(),
-    })),
-    params.tieBreak,
+  const rankMap = applyManualOverrides(
+    rankWithTieBreak(
+      unranked.map((r) => ({
+        id: r.contestantId,
+        primary: r.overall,
+        setScoresByRecency: r.roundScores.map((s) => s.score ?? 0).reverse(),
+      })),
+      params.tieBreak,
+    ),
+    params.manualOverrides ?? new Map(),
   );
 
   const rows = unranked
@@ -398,6 +434,8 @@ export async function getCumulativeStandings(params: {
   eventId: string;
   /** Only groups with position strictly below this count (e.g. the group being activated). */
   beforePosition?: number;
+  /** Tabulator-resolved tie overrides (tieKeyFor(ids) -> order), if any. */
+  manualOverrides?: Map<string, string[]>;
 }): Promise<{ rows: GroupStandingRow[] }> {
   const { database, eventId } = params;
 
@@ -484,6 +522,7 @@ export async function getCumulativeStandings(params: {
     contestantIds: contestantRows.map((c) => c.id),
     roundScoreMode,
     tieBreak,
+    manualOverrides: params.manualOverrides,
   });
 }
 
@@ -513,10 +552,12 @@ export async function snapshotAdvancementQualifiers(params: {
     .limit(1);
   if (!group || group.advanceCount === null) return null;
 
+  const tieBreakRows = await listTieBreaks(database, eventId);
   const { rows } = await getCumulativeStandings({
     database,
     eventId,
     beforePosition: group.position,
+    manualOverrides: overrideMapFor(tieBreakRows, "advancement", groupId),
   });
   const scoredRows = rows.filter((row) =>
     row.roundScores.some((score) => score.score !== null),
@@ -592,6 +633,7 @@ function buildAdvancement(params: {
   if (qualifiedIds.length === 0 && !finalRankings) return null;
 
   return {
+    groupId: group.id,
     count: group.advanceCount,
     qualifiedIds,
     displayOrder: group.advanceDisplayOrder,
@@ -655,6 +697,8 @@ export async function getEventTabulatorDetail(params: {
     conflictRows,
     sessionRows,
     submissionRows,
+    tieBreakRows,
+    openVoteRows,
   ] = await Promise.all([
       database
         .select()
@@ -730,6 +774,8 @@ export async function getEventTabulatorDetail(params: {
         })
         .from(judgeSetSubmissions)
         .where(eq(judgeSetSubmissions.eventId, eventId)),
+      listTieBreaks(database, eventId),
+      listOpenVotes(database, eventId),
     ]);
 
   const signedInJudgeIds = new Set(sessionRows.map((r) => r.judgeId));
@@ -1101,12 +1147,21 @@ export async function getEventTabulatorDetail(params: {
     (activeGroup === null || activeIsRankOrder || activePointsAllSetsDone !== null);
   let finalRankings: EventTabulatorDetail["finalRankings"] = null;
   if (advancementPreview || ((activeGroup === null || activeIsRankOrder) && standingsGroups.length > 0)) {
+    // While previewing an advancement cut, a manually-broken tie is scoped to
+    // the round it feeds (it decides who qualifies); once there's no more
+    // advancement pending, ties in these standings are the event's final
+    // result, scoped event-wide instead.
+    const standingsOverrides =
+      advancementPreview && pendingAdvancementGroup
+        ? overrideMapFor(tieBreakRows, "advancement", pendingAdvancementGroup.id)
+        : overrideMapFor(tieBreakRows, "standings", null);
     const standings = computeGroupStandings({
       groups: standingsGroups,
       totalsBySet,
       contestantIds: contestantRows.map((c) => c.id),
       roundScoreMode,
       tieBreak,
+      manualOverrides: standingsOverrides,
     });
 
     const contestantById = new Map(contestantRows.map((c) => [c.id, c]));
@@ -1296,7 +1351,16 @@ export async function getEventTabulatorDetail(params: {
 
     if (perJudgeTotals.size > 0) {
       const contestantById = new Map(contestantRows.map((c) => [c.id, c]));
-      const results = computeRankOrder(perJudgeTotals);
+      const rankOrderOverrides = overrideMapFor(tieBreakRows, "rank_order", rankOrderGroup.id);
+      const rawResults = computeRankOrder(perJudgeTotals);
+      const placementMap = applyManualOverrides(
+        new Map(rawResults.map((r) => [r.contestantId, r.placement])),
+        rankOrderOverrides,
+      );
+      const results = rawResults.map((r) => ({
+        ...r,
+        placement: placementMap.get(r.contestantId) ?? r.placement,
+      }));
       rankOrder = {
         groupId: rankOrderGroup.id,
         groupName: rankOrderGroup.name,
@@ -1390,6 +1454,27 @@ export async function getEventTabulatorDetail(params: {
     judgeColumns,
     judgeMatrix,
     finalRankings,
+    tieBreaks: tieBreakRows.map((row) => ({
+      id: row.id,
+      scope: row.scope,
+      contextId: row.contextId,
+      tiedContestantIds: row.tiedContestantIds,
+      resolvedOrder: row.resolvedOrder,
+      method: row.method,
+      note: row.note,
+      resolvedByName: row.resolvedByName,
+    })),
+    openTieBreakVotes: openVoteRows.map((vote) => ({
+      id: vote.id,
+      scope: vote.scope,
+      contextId: vote.contextId,
+      tiedContestantIds: vote.tiedContestantIds,
+      eligibleJudges: vote.eligibleJudgeIds.flatMap((judgeId) => {
+        const judge = judgeRows.find((j) => j.id === judgeId);
+        return judge ? [{ id: judge.id, displayName: judge.displayName }] : [];
+      }),
+      votedJudgeIds: vote.votedJudgeIds,
+    })),
   };
 }
 

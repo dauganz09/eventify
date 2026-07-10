@@ -263,6 +263,7 @@ export function PrintVerificationFooter({ code }: { code: string }) {
 export function PrintRankingRows({
   rows,
   showScoredCount,
+  extraCols = [],
   judgeCols,
   advancement,
   colCount,
@@ -277,6 +278,8 @@ export function PrintRankingRows({
     scoresByJudge: Record<string, number>;
   }[];
   showScoredCount?: boolean;
+  /** Extra per-contestant columns between the name and the judge columns — e.g. per-set scores behind a combined total. */
+  extraCols?: { id: string; valueOf: (contestantId: string) => number | null }[];
   judgeCols: { id: string; displayName: string }[];
   advancement?: { count: number; roundName: string; contestantIds: string[] } | null;
   colCount: number;
@@ -317,6 +320,14 @@ export function PrintRankingRows({
                   {row.scoredCount}
                 </td>
               )}
+              {extraCols.map((col) => {
+                const value = col.valueOf(row.contestantId);
+                return (
+                  <td key={col.id} className="rpt-td rpt-td-muted rpt-td-right">
+                    {value == null ? "—" : value.toFixed(2)}
+                  </td>
+                );
+              })}
               {judgeCols.map((judge) => {
                 const score = row.scoresByJudge[judge.id];
                 return (

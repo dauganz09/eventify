@@ -383,6 +383,9 @@ export default async function TabulatorEventPage({
             advancementPreview={detail.advancementPreview}
             rankOrder={detail.rankOrder}
             tieBreak={detail.tieBreak}
+            tieBreaks={detail.tieBreaks}
+            openTieBreakVotes={detail.openTieBreakVotes}
+            canAdjust={canAdjust}
           />
         </CardContent>
       </Card>
@@ -457,6 +460,7 @@ export default async function TabulatorEventPage({
             anyRoundActive={anyRoundActive}
             anySetActive={anySetActive}
             activeGroupId={activeGroupId}
+            advancement={detail.advancement}
           />
         </CardContent>
       </Card>

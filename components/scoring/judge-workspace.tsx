@@ -37,6 +37,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Slider } from "@/components/ui/slider";
 import { SyncStatusBadge } from "@/components/scoring/sync-status-badge";
+import { JudgeTieBreakDialog, type JudgeTieBreakVote } from "@/components/scoring/judge-tie-break-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useOfflineOutbox } from "@/hooks/use-offline-outbox";
 import { randomUUID } from "@/lib/utils";
@@ -96,6 +97,8 @@ type Props = {
   finalized: boolean;
   /** Pending unlock request status for the current set, if any. */
   unlockRequestStatus: "pending" | "approved" | "rejected" | null;
+  /** A live tie-break vote awaiting this judge's ballot, if any. */
+  activeTieBreakVote?: JudgeTieBreakVote | null;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -180,6 +183,7 @@ export function JudgeWorkspace({
   existingScores,
   finalized,
   unlockRequestStatus: initialUnlockRequestStatus,
+  activeTieBreakVote: initialActiveTieBreakVote = null,
 }: Props) {
   const router = useRouter();
   const outbox = useOfflineOutbox();
@@ -190,6 +194,7 @@ export function JudgeWorkspace({
   const [confirmFinalize, setConfirmFinalize] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [unlockRequestStatus, setUnlockRequestStatus] = useState(initialUnlockRequestStatus);
+  const [activeTieBreakVote, setActiveTieBreakVote] = useState(initialActiveTieBreakVote);
   const [requestingUnlock, setRequestingUnlock] = useState(false);
   // Reveal the compact mobile/tablet action bar only once the full header has
   // scrolled out of view, so the top isn't cluttered while the header is visible.
@@ -243,6 +248,14 @@ export function JudgeWorkspace({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setUnlockRequestStatus(initialUnlockRequestStatus);
   }, [initialUnlockRequestStatus]);
+
+  // Same idiom for a live tie-break vote — keyed on its id so an unrelated
+  // parent re-render doesn't churn this (a new object each request).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveTieBreakVote(initialActiveTieBreakVote);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialActiveTieBreakVote?.id]);
 
   async function handleRequestUnlock() {
     setRequestingUnlock(true);
@@ -506,6 +519,7 @@ export function JudgeWorkspace({
 
   return (
     <div className="space-y-8">
+      {activeTieBreakVote && <JudgeTieBreakDialog vote={activeTieBreakVote} />}
       {/* Compact access bar (tablet/mobile only): keeps the set name and the
           primary action reachable while the judge scrolls a long list. Fixed so
           it doesn't shift the layout, and slid into view only once the header

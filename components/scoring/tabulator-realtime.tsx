@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { requestTabulatorSnapshotRefresh } from "@/lib/realtime/tabulator-bridge";
 
 const SCORE_DEBOUNCE_MS = 1_000;
+const FULL_REFRESH_DEBOUNCE_MS = 900;
 
 /**
  * Long-lived SSE subscription for the tabulator console. Lives outside the live
@@ -13,7 +14,9 @@ const SCORE_DEBOUNCE_MS = 1_000;
 export function TabulatorRealtime({ eventId }: { eventId: string }) {
   const router = useRouter();
   const routerRef = useRef(router);
-  routerRef.current = router;
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
 
   const scoreTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fullTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,10 +34,15 @@ export function TabulatorRealtime({ eventId }: { eventId: string }) {
 
     function scheduleFullRefresh() {
       if (fullTimer.current) clearTimeout(fullTimer.current);
+      // Long enough that a router.refresh() triggered right after a fresh page
+      // load can't land mid-hydration (a real source of "hydration failed"
+      // errors in dev mode — a full refresh reconciles a new server tree
+      // against whatever the client has, which is unsafe to do before the
+      // initial hydration pass has actually finished).
       fullTimer.current = setTimeout(() => {
         fullTimer.current = null;
         routerRef.current.refresh();
-      }, 300);
+      }, FULL_REFRESH_DEBOUNCE_MS);
     }
 
     source.onmessage = (event) => {

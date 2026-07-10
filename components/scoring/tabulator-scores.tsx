@@ -1,8 +1,17 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Crown, Info, Layers, Trophy } from "lucide-react";
+import { Crown, Info, Layers, Scale, Trophy, Vote } from "lucide-react";
+import { toast } from "sonner";
+import {
+  cancelTieBreakVoteAction,
+  clearTieBreakAction,
+  forceResolveTieBreakVoteAction,
+} from "@/app/(dashboard)/tabulator/actions";
+import { AfterHydration } from "@/components/after-hydration";
+import { AskJudgesDialog } from "@/components/scoring/ask-judges-dialog";
+import { TieBreakDialog } from "@/components/scoring/tie-break-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -88,11 +97,106 @@ interface ActiveRound {
 }
 
 interface Advancement {
+  groupId: string;
   count: number;
   qualifiedIds: string[];
   displayOrder: string;
   roundName: string;
   isPreview: boolean;
+}
+
+interface TieBreakSummary {
+  id: string;
+  scope: "standings" | "advancement" | "rank_order";
+  contextId: string | null;
+  tiedContestantIds: string[];
+  resolvedOrder: string[];
+  method: "manual" | "judge_vote";
+  note: string | null;
+  resolvedByName: string | null;
+}
+
+/** Order-independent key for a set of contestant ids — mirrors tieKeyFor() in lib/scoring/ranking.ts. */
+function tieKey(ids: string[]) {
+  return [...ids].sort().join(",");
+}
+
+function findTieBreak(
+  tieBreaks: TieBreakSummary[],
+  scope: TieBreakSummary["scope"],
+  contextId: string | null,
+  clusterIds: string[],
+): TieBreakSummary | null {
+  const key = tieKey(clusterIds);
+  return (
+    tieBreaks.find((tb) => tb.scope === scope && tb.contextId === contextId && tieKey(tb.tiedContestantIds) === key) ??
+    null
+  );
+}
+
+interface TieBreakVoteSummary {
+  id: string;
+  scope: "standings" | "advancement" | "rank_order";
+  contextId: string | null;
+  tiedContestantIds: string[];
+  eligibleJudges: { id: string; displayName: string }[];
+  votedJudgeIds: string[];
+}
+
+function findOpenVote(
+  votes: TieBreakVoteSummary[],
+  scope: TieBreakVoteSummary["scope"],
+  contextId: string | null,
+  clusterIds: string[],
+): TieBreakVoteSummary | null {
+  const key = tieKey(clusterIds);
+  return (
+    votes.find((v) => v.scope === scope && v.contextId === contextId && tieKey(v.tiedContestantIds) === key) ?? null
+  );
+}
+
+/** Live "N of M judges voted" strip with the tabulator's resolve-now/cancel escape hatch. */
+function TieBreakVoteTally({ eventId, vote }: { eventId: string; vote: TieBreakVoteSummary }) {
+  const [pending, startTransition] = useTransition();
+  const votedCount = vote.votedJudgeIds.length;
+  const total = vote.eligibleJudges.length;
+  const pct = total > 0 ? Math.round((votedCount / total) * 100) : 0;
+
+  function run(action: () => Promise<void>) {
+    startTransition(async () => {
+      try {
+        await action();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed.");
+      }
+    });
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2 text-[0.72rem] font-medium leading-snug text-sky-600 dark:text-sky-400">
+      <Vote className="size-3 shrink-0" />
+      {votedCount} of {total} judge{total === 1 ? "" : "s"} voted
+      <span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-sky-200 dark:bg-sky-900">
+        <span className="block h-full bg-sky-500" style={{ width: `${pct}%` }} />
+      </span>
+      <button
+        type="button"
+        disabled={pending}
+        className="underline decoration-dotted underline-offset-2 hover:text-foreground disabled:opacity-50"
+        onClick={() => run(() => forceResolveTieBreakVoteAction({ eventId, voteId: vote.id }))}
+      >
+        Resolve now
+      </button>
+      <button
+        type="button"
+        disabled={pending}
+        className="underline decoration-dotted underline-offset-2 hover:text-foreground disabled:opacity-50"
+        onClick={() => run(() => cancelTieBreakVoteAction({ eventId, voteId: vote.id }))}
+      >
+        Cancel vote
+      </button>
+    </span>
+  );
 }
 
 interface RankOrderRow {
@@ -119,6 +223,29 @@ function contestantLabel(row: { displayNumber: string | null; displayName: strin
 
 function round4(value: number) {
   return Math.round((value + Number.EPSILON) * 10_000) / 10_000;
+}
+
+function RevertTieBreakButton({ eventId, tieBreakId }: { eventId: string; tieBreakId: string }) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      className="underline decoration-dotted underline-offset-2 hover:text-foreground disabled:opacity-50"
+      onClick={() =>
+        startTransition(async () => {
+          try {
+            await clearTieBreakAction({ eventId, id: tieBreakId });
+            toast.success("Reverted to automatic.");
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "Failed to revert.");
+          }
+        })
+      }
+    >
+      {pending ? "Reverting…" : "Revert to automatic"}
+    </button>
+  );
 }
 
 /** Assigns dense competition ranks (ties share a rank) to a desc-sorted list. */
@@ -166,6 +293,9 @@ export function TabulatorScores({
   advancementPreview = false,
   rankOrder,
   tieBreak = "shared",
+  tieBreaks = [],
+  openTieBreakVotes = [],
+  canAdjust = false,
 }: {
   eventId: string;
   setColumns: SetColumn[];
@@ -181,6 +311,12 @@ export function TabulatorScores({
   advancementPreview?: boolean;
   rankOrder: RankOrder | null;
   tieBreak?: TieBreak;
+  /** The event's live manual tie-break overrides. */
+  tieBreaks?: TieBreakSummary[];
+  /** The event's currently-open "ask the judges" votes. */
+  openTieBreakVotes?: TieBreakVoteSummary[];
+  /** Whether the current user can resolve ties by hand ("score.adjust"). */
+  canAdjust?: boolean;
 }) {
   const live = useTabulatorLiveSnapshot();
   const router = useRouter();
@@ -205,6 +341,18 @@ export function TabulatorScores({
   const resolvedAdvancementPreview = live?.advancementPreview ?? advancementPreview;
   const resolvedRankOrder = live?.rankOrder ?? rankOrder;
   const resolvedTieBreak = live?.tieBreak ?? tieBreak;
+  const resolvedTieBreaks = live?.tieBreaks ?? tieBreaks;
+  const resolvedOpenTieBreakVotes = live?.openTieBreakVotes ?? openTieBreakVotes;
+
+  // Standings ties feed the advancement cut while a next round hasn't been
+  // activated yet; once there's no more advancement pending they're the
+  // event's final result, scoped event-wide instead.
+  const advancementTieBreakContext = resolvedAdvancement
+    ? { scope: "advancement" as const, contextId: resolvedAdvancement.groupId }
+    : null;
+  const standingsTieBreakContext = resolvedAdvancementPreview && advancementTieBreakContext
+    ? advancementTieBreakContext
+    : { scope: "standings" as const, contextId: null };
 
   const [weighted, setWeighted] = useState(true);
   const [activeTab, setActiveTab] = useState(() =>
@@ -280,7 +428,13 @@ export function TabulatorScores({
             </div>
           )}
           {resolvedRankOrder && resolvedRankOrder.rows.length > 0 && (
-            <RankOrderTable rankOrder={resolvedRankOrder} />
+            <RankOrderTable
+              rankOrder={resolvedRankOrder}
+              eventId={eventId}
+              canAdjust={canAdjust}
+              tieBreaks={resolvedTieBreaks}
+              openTieBreakVotes={resolvedOpenTieBreakVotes}
+            />
           )}
           {resolvedFinalRankings && resolvedFinalRankings.rows.length > 0 && (
             <FinalRankingsTable
@@ -292,6 +446,11 @@ export function TabulatorScores({
               tieBreak={resolvedTieBreak}
               advanceCount={resolvedAdvancement?.count ?? null}
               advanceRoundName={resolvedAdvancement?.roundName ?? null}
+              eventId={eventId}
+              canAdjust={canAdjust}
+              tieBreaks={resolvedTieBreaks}
+              openTieBreakVotes={resolvedOpenTieBreakVotes}
+              tieBreakContext={standingsTieBreakContext}
             />
           )}
         </div>
@@ -337,7 +496,13 @@ export function TabulatorScores({
         {resolvedRankOrder && (
           <TabsContent value="rankorder" className="mt-4">
             <div className="grid gap-8">
-              <RankOrderTable rankOrder={resolvedRankOrder} />
+              <RankOrderTable
+                rankOrder={resolvedRankOrder}
+                eventId={eventId}
+                canAdjust={canAdjust}
+                tieBreaks={resolvedTieBreaks}
+                openTieBreakVotes={resolvedOpenTieBreakVotes}
+              />
               {/* Cumulative standings from the preceding rounds — the basis for
                   who advanced into this rank-order round. Handy to announce. */}
               {resolvedFinalRankings && resolvedFinalRankings.rows.length > 0 && (
@@ -350,6 +515,11 @@ export function TabulatorScores({
                   tieBreak={resolvedTieBreak}
                   advanceCount={resolvedAdvancement?.count ?? null}
                   advanceRoundName={resolvedAdvancement?.roundName ?? null}
+                  eventId={eventId}
+                  canAdjust={canAdjust}
+                  tieBreaks={resolvedTieBreaks}
+                  openTieBreakVotes={resolvedOpenTieBreakVotes}
+                  tieBreakContext={advancementTieBreakContext}
                 />
               )}
             </div>
@@ -905,7 +1075,19 @@ function rankOrderTieNote(
   };
 }
 
-function RankOrderTable({ rankOrder }: { rankOrder: RankOrder }) {
+function RankOrderTable({
+  rankOrder,
+  eventId,
+  canAdjust = false,
+  tieBreaks = [],
+  openTieBreakVotes = [],
+}: {
+  rankOrder: RankOrder;
+  eventId?: string;
+  canAdjust?: boolean;
+  tieBreaks?: TieBreakSummary[];
+  openTieBreakVotes?: TieBreakVoteSummary[];
+}) {
   // Contestants sharing a rank sum are the ones a tie-break had to order.
   const clusterByRankSum = new Map<number, RankOrderRow[]>();
   for (const r of rankOrder.rows) {
@@ -949,11 +1131,25 @@ function RankOrderTable({ rankOrder }: { rankOrder: RankOrder }) {
             {rankOrder.rows.map((row, idx) => {
               const prevPlacement = idx > 0 ? rankOrder.rows[idx - 1].placement : null;
               const isTied = prevPlacement === row.placement;
-              const tieNote = rankOrderTieNote(
-                row,
-                clusterByRankSum.get(row.rankSum) ?? [],
-                rankOrder.judges,
-              );
+              const cluster = clusterByRankSum.get(row.rankSum) ?? [];
+              const tieNote = rankOrderTieNote(row, cluster, rankOrder.judges);
+              const override = eventId
+                ? findTieBreak(
+                    tieBreaks,
+                    "rank_order",
+                    rankOrder.groupId,
+                    cluster.map((c) => c.contestantId),
+                  )
+                : null;
+              const openVote = eventId
+                ? findOpenVote(
+                    openTieBreakVotes,
+                    "rank_order",
+                    rankOrder.groupId,
+                    cluster.map((c) => c.contestantId),
+                  )
+                : null;
+              const stillTied = cluster.length > 1 && cluster.every((c) => c.placement === row.placement);
               return (
                 <TableRow
                   key={row.contestantId}
@@ -977,18 +1173,82 @@ function RankOrderTable({ rankOrder }: { rankOrder: RankOrder }) {
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
                       <span className="whitespace-nowrap">{contestantLabel(row)}</span>
-                      {tieNote && (
-                        <span
-                          className={cn(
-                            "max-w-[22rem] text-[0.72rem] font-medium leading-snug",
-                            tieNote.tone === "won" && "text-emerald-600 dark:text-emerald-400",
-                            tieNote.tone === "lost" && "text-muted-foreground",
-                            tieNote.tone === "shared" && "text-amber-600 dark:text-amber-400",
-                          )}
-                        >
-                          {tieNote.tone === "won" ? "▲ " : tieNote.tone === "shared" ? "▬ " : "▽ "}
-                          {tieNote.text}
+                      {override ? (
+                        <span className="max-w-[22rem] text-[0.72rem] font-medium leading-snug text-sky-600 dark:text-sky-400">
+                          {"◆ Manually resolved"}
+                          {override.resolvedByName ? ` by ${override.resolvedByName}` : ""}
+                          {override.note ? ` — ${override.note}` : "."}
+                          <AfterHydration>
+                            {eventId ? (
+                              <>
+                                {" "}
+                                <RevertTieBreakButton eventId={eventId} tieBreakId={override.id} />
+                              </>
+                            ) : null}
+                          </AfterHydration>
                         </span>
+                      ) : (
+                        tieNote && (
+                          <span
+                            className={cn(
+                              "max-w-[22rem] text-[0.72rem] font-medium leading-snug",
+                              tieNote.tone === "won" && "text-emerald-600 dark:text-emerald-400",
+                              tieNote.tone === "lost" && "text-muted-foreground",
+                              tieNote.tone === "shared" && "text-amber-600 dark:text-amber-400",
+                            )}
+                          >
+                            {tieNote.tone === "won" ? "▲ " : tieNote.tone === "shared" ? "▬ " : "▽ "}
+                            {tieNote.text}
+                            <AfterHydration>
+                              {openVote && eventId ? (
+                                <>
+                                  {" "}
+                                  <TieBreakVoteTally eventId={eventId} vote={openVote} />
+                                </>
+                              ) : stillTied && canAdjust && eventId ? (
+                                <>
+                                  {" "}
+                                  <TieBreakDialog
+                                    eventId={eventId}
+                                    scope="rank_order"
+                                    contextId={rankOrder.groupId}
+                                    contestants={cluster.map((c) => ({
+                                      id: c.contestantId,
+                                      displayNumber: c.displayNumber,
+                                      displayName: c.displayName,
+                                    }))}
+                                    rankLabel={`rank sum ${row.rankSum}`}
+                                    trigger={
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                      >
+                                        <Scale className="size-3" />
+                                        Break tie
+                                      </button>
+                                    }
+                                  />{" "}
+                                  <AskJudgesDialog
+                                    eventId={eventId}
+                                    scope="rank_order"
+                                    contextId={rankOrder.groupId}
+                                    tiedContestantIds={cluster.map((c) => c.contestantId)}
+                                    rankLabel={`rank sum ${row.rankSum}`}
+                                    trigger={
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                      >
+                                        <Vote className="size-3" />
+                                        Ask judges
+                                      </button>
+                                    }
+                                  />
+                                </>
+                              ) : null}
+                            </AfterHydration>
+                          </span>
+                        )
                       )}
                     </div>
                   </TableCell>
@@ -1072,6 +1332,11 @@ function FinalRankingsTable({
   tieBreak = "shared",
   advanceCount = null,
   advanceRoundName = null,
+  eventId,
+  canAdjust = false,
+  tieBreaks = [],
+  openTieBreakVotes = [],
+  tieBreakContext = null,
 }: {
   columns: FinalRankingsColumn[];
   rows: FinalRankingsRow[];
@@ -1091,6 +1356,12 @@ function FinalRankingsTable({
   advanceCount?: number | null;
   /** Target round name shown on the advancement cut line. */
   advanceRoundName?: string | null;
+  eventId?: string;
+  canAdjust?: boolean;
+  tieBreaks?: TieBreakSummary[];
+  openTieBreakVotes?: TieBreakVoteSummary[];
+  /** Which tie scope/context this table's ties should be saved/looked up under; null disables the Break-tie control. */
+  tieBreakContext?: { scope: "standings" | "advancement"; contextId: string | null } | null;
 }) {
   const hasWeights = columns.some((c) => c.weight !== 100);
   const colSpan = columns.length + 3;
@@ -1098,9 +1369,10 @@ function FinalRankingsTable({
   // Contestants sharing an overall score are the ones the tie-break had to order.
   const peersByOverall = new Map<number, FinalRankingsRow[]>();
   for (const r of rows) {
-    const arr = peersByOverall.get(r.overall) ?? [];
+    const key = round4(r.overall);
+    const arr = peersByOverall.get(key) ?? [];
     arr.push(r);
-    peersByOverall.set(r.overall, arr);
+    peersByOverall.set(key, arr);
   }
 
   // The advancement cut line goes after the last contestant that advances. When
@@ -1167,11 +1439,27 @@ function FinalRankingsTable({
             {rows.map((row, idx) => {
               const prevRank = idx > 0 ? rows[idx - 1].rank : null;
               const isTied = prevRank === row.rank;
-              const tieNote = standingsTieNote(
-                row,
-                peersByOverall.get(row.overall) ?? [],
-                tieBreak,
-              );
+              const cluster = peersByOverall.get(round4(row.overall)) ?? [];
+              const tieNote = standingsTieNote(row, cluster, tieBreak);
+              const override =
+                eventId && tieBreakContext
+                  ? findTieBreak(
+                      tieBreaks,
+                      tieBreakContext.scope,
+                      tieBreakContext.contextId,
+                      cluster.map((c) => c.contestantId),
+                    )
+                  : null;
+              const openVote =
+                eventId && tieBreakContext
+                  ? findOpenVote(
+                      openTieBreakVotes,
+                      tieBreakContext.scope,
+                      tieBreakContext.contextId,
+                      cluster.map((c) => c.contestantId),
+                    )
+                  : null;
+              const stillTied = cluster.length > 1 && cluster.every((c) => c.rank === row.rank);
               return (
                 <Fragment key={row.contestantId}>
                 <tr
@@ -1194,18 +1482,82 @@ function FinalRankingsTable({
                         {row.displayNumber ? `${row.displayNumber}. ` : ""}
                         {row.displayName}
                       </span>
-                      {tieNote && (
-                        <span
-                          className={cn(
-                            "max-w-[24rem] text-[0.72rem] font-medium leading-snug",
-                            tieNote.tone === "won" && "text-emerald-600 dark:text-emerald-400",
-                            tieNote.tone === "lost" && "text-muted-foreground",
-                            tieNote.tone === "shared" && "text-amber-600 dark:text-amber-400",
-                          )}
-                        >
-                          {tieNote.tone === "won" ? "▲ " : tieNote.tone === "shared" ? "▬ " : "▽ "}
-                          {tieNote.text}
+                      {override ? (
+                        <span className="max-w-[24rem] text-[0.72rem] font-medium leading-snug text-sky-600 dark:text-sky-400">
+                          {"◆ Manually resolved"}
+                          {override.resolvedByName ? ` by ${override.resolvedByName}` : ""}
+                          {override.note ? ` — ${override.note}` : "."}
+                          <AfterHydration>
+                            {eventId ? (
+                              <>
+                                {" "}
+                                <RevertTieBreakButton eventId={eventId} tieBreakId={override.id} />
+                              </>
+                            ) : null}
+                          </AfterHydration>
                         </span>
+                      ) : (
+                        tieNote && (
+                          <span
+                            className={cn(
+                              "max-w-[24rem] text-[0.72rem] font-medium leading-snug",
+                              tieNote.tone === "won" && "text-emerald-600 dark:text-emerald-400",
+                              tieNote.tone === "lost" && "text-muted-foreground",
+                              tieNote.tone === "shared" && "text-amber-600 dark:text-amber-400",
+                            )}
+                          >
+                            {tieNote.tone === "won" ? "▲ " : tieNote.tone === "shared" ? "▬ " : "▽ "}
+                            {tieNote.text}
+                            <AfterHydration>
+                              {openVote && eventId ? (
+                                <>
+                                  {" "}
+                                  <TieBreakVoteTally eventId={eventId} vote={openVote} />
+                                </>
+                              ) : stillTied && canAdjust && eventId && tieBreakContext ? (
+                                <>
+                                  {" "}
+                                  <TieBreakDialog
+                                    eventId={eventId}
+                                    scope={tieBreakContext.scope}
+                                    contextId={tieBreakContext.contextId}
+                                    contestants={cluster.map((c) => ({
+                                      id: c.contestantId,
+                                      displayNumber: c.displayNumber,
+                                      displayName: c.displayName,
+                                    }))}
+                                    rankLabel={`rank ${row.rank}`}
+                                    trigger={
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                      >
+                                        <Scale className="size-3" />
+                                        Break tie
+                                      </button>
+                                    }
+                                  />{" "}
+                                  <AskJudgesDialog
+                                    eventId={eventId}
+                                    scope={tieBreakContext.scope}
+                                    contextId={tieBreakContext.contextId}
+                                    tiedContestantIds={cluster.map((c) => c.contestantId)}
+                                    rankLabel={`rank ${row.rank}`}
+                                    trigger={
+                                      <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                      >
+                                        <Vote className="size-3" />
+                                        Ask judges
+                                      </button>
+                                    }
+                                  />
+                                </>
+                              ) : null}
+                            </AfterHydration>
+                          </span>
+                        )
                       )}
                     </div>
                   </td>

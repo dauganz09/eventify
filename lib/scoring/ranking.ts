@@ -113,6 +113,48 @@ export function rankWithTieBreak(
   return ranks;
 }
 
+// ── Manual tie-break overrides ───────────────────────────────────────────────
+// A tabulator can resolve a tie that survives the automatic methods above by
+// hand. Overrides are keyed by the exact set of tied contestant ids, so if the
+// tie's composition later changes (a score edit adds/removes a contestant from
+// the cluster), the stored order silently stops applying — the automatic
+// result reappears rather than misapplying stale data.
+
+/** Order-independent key identifying a specific set of tied contestant ids. */
+export function tieKeyFor(ids: string[]): string {
+  return [...ids].sort().join(",");
+}
+
+/**
+ * Splits any rank/placement shared by 2+ ids into sequential ranks, in the
+ * order given by a matching manual override. Ranks with no matching override
+ * (or an override that isn't an exact permutation of the tied ids) are left
+ * untouched.
+ */
+export function applyManualOverrides(
+  ranks: Map<string, number>,
+  overridesByTieKey: Map<string, string[]>,
+): Map<string, number> {
+  const idsByRank = new Map<number, string[]>();
+  for (const [id, rank] of ranks.entries()) {
+    const group = idsByRank.get(rank);
+    if (group) group.push(id);
+    else idsByRank.set(rank, [id]);
+  }
+
+  const result = new Map(ranks);
+  for (const [rank, ids] of idsByRank.entries()) {
+    if (ids.length < 2) continue;
+    const order = overridesByTieKey.get(tieKeyFor(ids));
+    if (!order) continue;
+    const isExactPermutation =
+      order.length === ids.length && ids.every((id) => order.includes(id));
+    if (!isExactPermutation) continue;
+    order.forEach((id, index) => result.set(id, rank + index));
+  }
+  return result;
+}
+
 // ── Rank-order scoring ───────────────────────────────────────────────────────
 // Pageant-style final: each judge's totals are converted to ranks (1 = that
 // judge's highest total), ranks are summed across judges, and the LOWEST
@@ -198,4 +240,37 @@ export function computeRankOrder(
     prevPlacement = placement;
   });
   return results;
+}
+
+// ── Judge-vote ballot resolution ─────────────────────────────────────────────
+// Aggregates judges' individual rankings of a tied cluster into one order, via
+// Borda count (sum each judge's rank position per contestant; lowest total
+// wins) — the same "lowest wins" idea rankSum/computeRankOrder already uses.
+// Generalizes to any tie size with no pairwise-majority-cycle handling needed.
+
+export interface BallotResolution {
+  /** Full order, best -> worst. Null when the aggregate itself stayed tied —
+   *  the vote didn't produce a definitive answer; falls back to a manual break. */
+  order: string[] | null;
+  /** contestantId -> summed rank position across ballots (lower = better). */
+  tally: Record<string, number>;
+}
+
+export function resolveBallots(
+  tiedContestantIds: string[],
+  ballots: Array<{ orderedContestantIds: string[] }>,
+): BallotResolution {
+  const tally: Record<string, number> = {};
+  for (const id of tiedContestantIds) tally[id] = 0;
+
+  for (const ballot of ballots) {
+    ballot.orderedContestantIds.forEach((id, index) => {
+      if (id in tally) tally[id] += index + 1;
+    });
+  }
+
+  const sorted = [...tiedContestantIds].sort((a, b) => tally[a] - tally[b]);
+  const hasTie = sorted.some((id, index) => index > 0 && tally[id] === tally[sorted[index - 1]]);
+
+  return { order: hasTie ? null : sorted, tally };
 }
