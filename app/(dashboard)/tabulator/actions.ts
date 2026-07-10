@@ -16,6 +16,14 @@ import {
   recalculateAggregateResults,
   snapshotAdvancementQualifiers,
 } from "@/lib/scoring/tabulator-service";
+import { clearTieBreak, saveTieBreak } from "@/lib/scoring/tie-break-service";
+import { cancelVote, openVote, resolveVote } from "@/lib/scoring/tie-break-vote-service";
+import {
+  clearTieBreakSchema,
+  openTieBreakVoteSchema,
+  saveTieBreakSchema,
+  tieBreakVoteIdSchema,
+} from "@/lib/validation/domain";
 
 type Lifecycle = "idle" | "active" | "finished";
 
@@ -850,4 +858,197 @@ export async function clearRoundScoresAction(groupId: string) {
   revalidatePath(`/tabulator/${summary.eventId}`);
 
   return result;
+}
+
+/**
+ * Record the tabulator's manual resolution of a tie that survived the
+ * automatic tie-break — either their own call, or what the judges decided
+ * after being polled live. Applies immediately to standings/advancement/
+ * rank-order (whichever `scope` the tie was shown in); a later score edit
+ * that changes the tie's composition makes this override stop matching and
+ * the automatic result reappears (see `applyManualOverrides`).
+ */
+export async function saveTieBreakAction(input: {
+  eventId: string;
+  scope: "standings" | "advancement" | "rank_order";
+  contextId: string | null;
+  tiedContestantIds: string[];
+  order: string[];
+  note?: string;
+}) {
+  const context = await requirePermission("score.adjust");
+  const parsed = saveTieBreakSchema.parse(input);
+  await assertEventInOrg(parsed.eventId, context.organization.id);
+
+  const { id } = await saveTieBreak({
+    database: db,
+    eventId: parsed.eventId,
+    scope: parsed.scope,
+    contextId: parsed.contextId,
+    tiedContestantIds: parsed.tiedContestantIds,
+    order: parsed.order,
+    note: parsed.note ?? null,
+    actorUserId: context.userId,
+  });
+
+  await writeAuditLog({
+    database: db,
+    organizationId: context.organization.id,
+    eventId: parsed.eventId,
+    actorUserId: context.userId,
+    action: "ranking.tie_break_set",
+    entityType: parsed.contextId ? "round_group" : "event",
+    entityId: parsed.contextId ?? parsed.eventId,
+    metadata: {
+      source: "tabulator",
+      scope: parsed.scope,
+      tiedContestantIds: parsed.tiedContestantIds,
+      order: parsed.order,
+      note: parsed.note ?? null,
+    },
+  });
+
+  publishResultsUpdated(parsed.eventId);
+  revalidatePath(`/tabulator/${parsed.eventId}`);
+
+  return { id };
+}
+
+/** Reverts a manually-resolved tie back to the event's automatic tie-break. */
+export async function clearTieBreakAction(input: { eventId: string; id: string }) {
+  const context = await requirePermission("score.adjust");
+  const parsed = clearTieBreakSchema.parse(input);
+  await assertEventInOrg(parsed.eventId, context.organization.id);
+
+  await clearTieBreak({ database: db, eventId: parsed.eventId, id: parsed.id });
+
+  await writeAuditLog({
+    database: db,
+    organizationId: context.organization.id,
+    eventId: parsed.eventId,
+    actorUserId: context.userId,
+    action: "ranking.tie_break_cleared",
+    entityType: "event",
+    entityId: parsed.eventId,
+    metadata: { source: "tabulator", tieBreakId: parsed.id },
+  });
+
+  publishResultsUpdated(parsed.eventId);
+  revalidatePath(`/tabulator/${parsed.eventId}`);
+}
+
+/**
+ * Opens a live "ask the judges" vote for a tie: pushes a blocking prompt to
+ * every eligible judge's device. Resolves automatically once they've all
+ * voted (see castTieBreakVoteAction in app/api/judge/cast-tie-break-vote),
+ * or the tabulator can force it early / cancel it below.
+ */
+export async function openTieBreakVoteAction(input: {
+  eventId: string;
+  scope: "standings" | "advancement" | "rank_order";
+  contextId: string | null;
+  tiedContestantIds: string[];
+  rankLabel: string;
+}) {
+  const context = await requirePermission("score.adjust");
+  const parsed = openTieBreakVoteSchema.parse(input);
+  await assertEventInOrg(parsed.eventId, context.organization.id);
+
+  const { id, eligibleJudgeIds } = await openVote({
+    database: db,
+    eventId: parsed.eventId,
+    scope: parsed.scope,
+    contextId: parsed.contextId,
+    tiedContestantIds: parsed.tiedContestantIds,
+    rankLabel: parsed.rankLabel,
+    actorUserId: context.userId,
+  });
+
+  for (const judgeId of eligibleJudgeIds) {
+    publishEvent(parsed.eventId, {
+      type: "tie_break_vote.opened",
+      judgeId,
+      voteId: id,
+      rankLabel: parsed.rankLabel,
+    });
+  }
+
+  await writeAuditLog({
+    database: db,
+    organizationId: context.organization.id,
+    eventId: parsed.eventId,
+    actorUserId: context.userId,
+    action: "ranking.tie_break_vote_opened",
+    entityType: parsed.contextId ? "round_group" : "event",
+    entityId: parsed.contextId ?? parsed.eventId,
+    metadata: {
+      source: "tabulator",
+      scope: parsed.scope,
+      tiedContestantIds: parsed.tiedContestantIds,
+      eligibleJudgeIds,
+    },
+  });
+
+  publishResultsUpdated(parsed.eventId);
+  revalidatePath(`/tabulator/${parsed.eventId}`);
+
+  return { id };
+}
+
+/**
+ * The tabulator's escape hatch: resolves an open vote right now with
+ * whatever ballots have been cast so far (a stuck/offline judge can never
+ * block the event indefinitely).
+ */
+export async function forceResolveTieBreakVoteAction(input: { eventId: string; voteId: string }) {
+  const context = await requirePermission("score.adjust");
+  const parsed = tieBreakVoteIdSchema.parse(input);
+  await assertEventInOrg(parsed.eventId, context.organization.id);
+
+  const { order } = await resolveVote({
+    database: db,
+    voteId: parsed.voteId,
+    actorUserId: context.userId,
+  });
+
+  publishEvent(parsed.eventId, { type: "tie_break_vote.resolved", voteId: parsed.voteId });
+
+  await writeAuditLog({
+    database: db,
+    organizationId: context.organization.id,
+    eventId: parsed.eventId,
+    actorUserId: context.userId,
+    action: "ranking.tie_break_vote_resolved",
+    entityType: "event",
+    entityId: parsed.eventId,
+    metadata: { source: "tabulator", voteId: parsed.voteId, forced: true, order },
+  });
+
+  publishResultsUpdated(parsed.eventId);
+  revalidatePath(`/tabulator/${parsed.eventId}`);
+}
+
+/** Cancels an open vote outright — no tie_breaks row is written. */
+export async function cancelTieBreakVoteAction(input: { eventId: string; voteId: string }) {
+  const context = await requirePermission("score.adjust");
+  const parsed = tieBreakVoteIdSchema.parse(input);
+  await assertEventInOrg(parsed.eventId, context.organization.id);
+
+  await cancelVote({ database: db, voteId: parsed.voteId });
+
+  publishEvent(parsed.eventId, { type: "tie_break_vote.cancelled", voteId: parsed.voteId });
+
+  await writeAuditLog({
+    database: db,
+    organizationId: context.organization.id,
+    eventId: parsed.eventId,
+    actorUserId: context.userId,
+    action: "ranking.tie_break_vote_cancelled",
+    entityType: "event",
+    entityId: parsed.eventId,
+    metadata: { source: "tabulator", voteId: parsed.voteId },
+  });
+
+  publishResultsUpdated(parsed.eventId);
+  revalidatePath(`/tabulator/${parsed.eventId}`);
 }

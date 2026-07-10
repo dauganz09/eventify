@@ -1,12 +1,14 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { contestants, criteria, events, judgeAssignments, judges, judgeSetSubmissions, roundGroups, rounds, scoreRecords, unlockRequests } from "@/db/schema";
 import { getJudgeSession, JUDGE_SESSION_COOKIE } from "@/lib/auth/judge-session";
+import { getActiveVoteForJudge } from "@/lib/scoring/tie-break-vote-service";
 import { JudgeWorkspace } from "@/components/scoring/judge-workspace";
 import { JudgeRealtime } from "@/components/scoring/judge-realtime";
 import { JudgeStandby } from "@/components/scoring/judge-standby";
+import type { JudgeTieBreakVote } from "@/components/scoring/judge-tie-break-dialog";
 
 export default async function JudgePage() {
   const cookieStore = await cookies();
@@ -18,8 +20,11 @@ export default async function JudgePage() {
 
   const { judgeId, eventId } = session;
 
-  // Load event, judge, assignments in parallel
-  const [event, judge, assignments] = await Promise.all([
+  // Load event, judge, assignments, and any live tie-break vote awaiting this
+  // judge's ballot in parallel. The vote check runs regardless of whether a
+  // round is currently active — a cutoff tie is most often broken BETWEEN
+  // rounds, right before the next one activates, when the judge is on standby.
+  const [event, judge, assignments, activeVote] = await Promise.all([
     db.select().from(events).where(and(eq(events.id, eventId), isNull(events.deletedAt))).limit(1).then((r) => r[0]),
     db.select().from(judges).where(eq(judges.id, judgeId)).limit(1).then((r) => r[0]),
     db
@@ -31,9 +36,32 @@ export default async function JudgePage() {
       .where(
         and(eq(judgeAssignments.judgeId, judgeId), eq(judgeAssignments.eventId, eventId)),
       ),
+    getActiveVoteForJudge(db, eventId, judgeId),
   ]);
 
   if (!event || !judge) redirect("/judge/login?error=invalid");
+
+  let activeTieBreakVote: JudgeTieBreakVote | null = null;
+  if (activeVote) {
+    const tiedContestantRows = await db
+      .select({
+        id: contestants.id,
+        displayNumber: contestants.displayNumber,
+        displayName: contestants.displayName,
+        photoUrl: contestants.photoUrl,
+      })
+      .from(contestants)
+      .where(inArray(contestants.id, activeVote.tiedContestantIds));
+    activeTieBreakVote = {
+      id: activeVote.id,
+      scope: activeVote.scope,
+      rankLabel: activeVote.rankLabel,
+      contestants: activeVote.tiedContestantIds.flatMap((id) => {
+        const row = tiedContestantRows.find((c) => c.id === id);
+        return row ? [row] : [];
+      }),
+    };
+  }
 
   // Resolve the ACTIVE set the tabulator has opened for scoring. A judge sees a
   // set if they're assigned to it, assigned to its round (roundGroupId), are
@@ -80,6 +108,7 @@ export default async function JudgePage() {
           eventName={event.name}
           judgeName={judge.displayName}
           complete={scoringComplete}
+          activeTieBreakVote={activeTieBreakVote}
         />
       </div>
     );
@@ -220,6 +249,7 @@ export default async function JudgePage() {
         }))}
         finalized={finalized}
         unlockRequestStatus={unlockRequest?.status ?? null}
+        activeTieBreakVote={activeTieBreakVote}
       />
     </div>
   );

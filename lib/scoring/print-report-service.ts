@@ -12,12 +12,14 @@ import {
   scoreRecords,
 } from "@/db/schema";
 import {
+  applyManualOverrides,
   computeRankOrder,
   parseRoundScoreMode,
   parseTieBreak,
   rankWithTieBreak,
   type RoundScoreMode,
 } from "@/lib/scoring/ranking";
+import { listTieBreaks, overrideMapFor } from "@/lib/scoring/tie-break-service";
 import type { SubmittedScore } from "@/lib/scoring/types";
 
 type Lifecycle = "idle" | "active" | "finished";
@@ -195,7 +197,7 @@ export async function getEventResultsReport(params: {
     (eventRow.config as Record<string, unknown> | null)?.roundScoreMode,
   );
 
-  const [groupRows, roundRows, contestantRows, criteriaRows, judgeRows, assignmentRows] =
+  const [groupRows, roundRows, contestantRows, criteriaRows, judgeRows, assignmentRows, tieBreakRows] =
     await Promise.all([
       database
         .select({
@@ -253,7 +255,20 @@ export async function getEventResultsReport(params: {
         })
         .from(judgeAssignments)
         .where(eq(judgeAssignments.eventId, eventId)),
+      listTieBreaks(database, eventId),
     ]);
+
+  // Tabulator-resolved tie overrides — merged across the "standings" scope and
+  // every "advancement" cutoff group into one map, so the printed cumulative
+  // ranking matches whichever scope the tabulator actually broke the tie
+  // under. A tie cluster only ever has an override recorded under one scope,
+  // so merging is safe (at most one map has an entry for any given cluster).
+  const cumulativeOverrides = new Map<string, string[]>([
+    ...overrideMapFor(tieBreakRows, "standings", null),
+    ...groupRows
+      .filter((g) => g.advanceCount !== null)
+      .flatMap((g) => [...overrideMapFor(tieBreakRows, "advancement", g.id)]),
+  ]);
 
   const activeJudgeIds = judgeRows.filter((j) => j.isActive && !j.isSystem).map((j) => j.id);
   const systemJudge = judgeRows.find((j) => j.isSystem) ?? null;
@@ -377,7 +392,10 @@ export async function getEventResultsReport(params: {
     }));
   }
 
-  function rankAcrossSets(setIds: string[]): RankedRow[] {
+  function rankAcrossSets(
+    setIds: string[],
+    overrides: Map<string, string[]> = new Map(),
+  ): RankedRow[] {
     if (setIds.length === 0) return [];
     const rows = contestantRows.map((c) => {
       let sum = 0;
@@ -399,13 +417,16 @@ export async function getEventResultsReport(params: {
       return { c, value, scoredCount, setScoresByRecency };
     });
     const scored = rows.filter((r) => r.scoredCount > 0);
-    const rankMap = rankWithTieBreak(
-      scored.map((r) => ({
-        id: r.c.id,
-        primary: r.value,
-        setScoresByRecency: r.setScoresByRecency,
-      })),
-      tieBreak,
+    const rankMap = applyManualOverrides(
+      rankWithTieBreak(
+        scored.map((r) => ({
+          id: r.c.id,
+          primary: r.value,
+          setScoresByRecency: r.setScoresByRecency,
+        })),
+        tieBreak,
+      ),
+      overrides,
     );
     return scored
       .map((r) => ({
@@ -452,13 +473,16 @@ export async function getEventResultsReport(params: {
       return { c, value: round4(total), scoredCount, setScoresByRecency };
     });
     const scored = rows.filter((r) => r.scoredCount > 0);
-    const rankMap = rankWithTieBreak(
-      scored.map((r) => ({
-        id: r.c.id,
-        primary: r.value,
-        setScoresByRecency: r.setScoresByRecency,
-      })),
-      tieBreak,
+    const rankMap = applyManualOverrides(
+      rankWithTieBreak(
+        scored.map((r) => ({
+          id: r.c.id,
+          primary: r.value,
+          setScoresByRecency: r.setScoresByRecency,
+        })),
+        tieBreak,
+      ),
+      cumulativeOverrides,
     );
     return scored
       .map((r) => ({
@@ -572,13 +596,19 @@ export async function getEventResultsReport(params: {
     }
 
     const contestantById = new Map(contestantRows.map((c) => [c.id, c]));
-    const rows: RankOrderReportRow[] = computeRankOrder(perJudgeTotals)
+    const rankOrderOverrides = overrideMapFor(tieBreakRows, "rank_order", group.id);
+    const rawResults = computeRankOrder(perJudgeTotals);
+    const placementMap = applyManualOverrides(
+      new Map(rawResults.map((r) => [r.contestantId, r.placement])),
+      rankOrderOverrides,
+    );
+    const rows: RankOrderReportRow[] = rawResults
       .flatMap((result) => {
         const contestant = contestantById.get(result.contestantId);
         if (!contestant) return [];
         return [
           {
-            placement: result.placement,
+            placement: placementMap.get(result.contestantId) ?? result.placement,
             contestantId: result.contestantId,
             displayNumber: contestant.displayNumber,
             displayName: contestant.displayName,
@@ -654,6 +684,7 @@ export async function getEventResultsReport(params: {
           roundRows
             .filter((r) => r.roundGroupId === null || !rankOrderGroupIds.has(r.roundGroupId))
             .map((r) => r.id),
+          cumulativeOverrides,
         );
 
   // Advancement cutoff: a later round configured to admit only its top N

@@ -1,0 +1,1 @@
+ALTER TABLE "tie_break_votes" ADD COLUMN "rank_label" text NOT NULL;

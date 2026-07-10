@@ -265,3 +265,51 @@ export const customPrintReportDeleteSchema = z.object({
   eventId: idSchema,
   reportId: idSchema,
 });
+
+export const tieBreakScopeSchema = z.enum(["standings", "advancement", "rank_order"]);
+
+export const saveTieBreakSchema = z
+  .object({
+    eventId: idSchema,
+    scope: tieBreakScopeSchema,
+    contextId: idSchema.nullable(),
+    tiedContestantIds: z.array(idSchema).min(2),
+    order: z.array(idSchema).min(2),
+    note: z.string().trim().max(500).optional(),
+  })
+  .refine(
+    (data) =>
+      data.order.length === data.tiedContestantIds.length &&
+      new Set(data.order).size === data.order.length &&
+      data.tiedContestantIds.every((id) => data.order.includes(id)),
+    { message: "The resolved order must include exactly the tied contestants, once each." },
+  );
+
+export type SaveTieBreakInput = z.infer<typeof saveTieBreakSchema>;
+
+export const clearTieBreakSchema = z.object({
+  eventId: idSchema,
+  id: idSchema,
+});
+
+export const openTieBreakVoteSchema = z.object({
+  eventId: idSchema,
+  scope: tieBreakScopeSchema,
+  contextId: idSchema.nullable(),
+  tiedContestantIds: z.array(idSchema).min(2),
+  rankLabel: z.string().trim().min(1).max(120),
+});
+
+export const tieBreakVoteIdSchema = z.object({
+  eventId: idSchema,
+  voteId: idSchema,
+});
+
+export const castTieBreakVoteSchema = z
+  .object({
+    voteId: idSchema,
+    order: z.array(idSchema).min(2),
+  })
+  .refine((data) => new Set(data.order).size === data.order.length, {
+    message: "Your ranking can't include the same contestant twice.",
+  });

@@ -52,6 +52,16 @@ export function JudgeRealtime({
         void fetch("/api/auth/judge-logout", { method: "POST" }).finally(() => {
           window.location.href = "/judge/login?error=released";
         });
+      } else if (data.type === "tie_break_vote.opened" && data.judgeId === judgeId) {
+        // A new vote is waiting on us — refresh so the blocking dialog appears.
+        toast.info(`The tabulator needs your vote: ${String(data.rankLabel ?? "a tie")}`);
+        router.refresh();
+      } else if (data.type === "tie_break_vote.resolved") {
+        toast.success("The tie-break vote is in.");
+        router.refresh();
+      } else if (data.type === "tie_break_vote.cancelled") {
+        toast.info("The tabulator cancelled the tie-break vote.");
+        router.refresh();
       } else if (data.type === "judge.reminder" && data.judgeId === judgeId) {
         const message = String(data.message ?? "Reminder from the tabulator");
         // A rich, hard-to-miss custom toast: top-right, accent color, bell icon,
