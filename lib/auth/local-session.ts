@@ -12,6 +12,7 @@ const SESSION_DURATION_SECONDS = 30 * 24 * 60 * 60; // 30 days
 export const sessionCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
   path: "/",
   maxAge: SESSION_DURATION_SECONDS,
 };

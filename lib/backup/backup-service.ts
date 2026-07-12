@@ -345,6 +345,7 @@ function dockerRestore(params: {
         container,
         "pg_restore",
         "--clean", "--if-exists",
+        "--single-transaction",
         "--no-owner", "--no-privileges",
         "-U", conn.user,
         "-d", conn.database,
@@ -425,9 +426,14 @@ export async function restoreBackup(params: {
   const tempFile = path.join(os.tmpdir(), `tabulate-restore-${Date.now()}.dump`);
   await copyFile(resolved.absolutePath, tempFile);
 
+  // Hoisted so the catch block can still report it if the restore step
+  // (after the safety backup already succeeded) is what fails.
+  let safetyFilename: string | null = null;
+
   try {
     // 1) Safety net — bail out if we can't capture the current state first.
     const safety = await runBackup({ database, organizationId, trigger: "pre-restore", actorUserId });
+    safetyFilename = safety.status === "success" ? safety.filename : null;
     if (safety.status !== "success") {
       return {
         ok: false,
@@ -451,6 +457,7 @@ export async function restoreBackup(params: {
           "-U", conn.user,
           "-d", conn.database,
           "--clean", "--if-exists",
+          "--single-transaction",
           "--no-owner", "--no-privileges",
           tempFile,
         ],
@@ -487,11 +494,14 @@ export async function restoreBackup(params: {
       // Ignore — bookkeeping only.
     }
 
-    return { ok: true, safetyBackupFilename: safety.filename, error: null };
+    return { ok: true, safetyBackupFilename: safetyFilename, error: null };
   } catch (err) {
+    // If the safety backup already succeeded, the restore step is what
+    // failed — surface its filename so the operator isn't left hunting the
+    // backups list for their recovery point during an active incident.
     return {
       ok: false,
-      safetyBackupFilename: null,
+      safetyBackupFilename: safetyFilename,
       error: err instanceof Error ? err.message : String(err),
     };
   } finally {

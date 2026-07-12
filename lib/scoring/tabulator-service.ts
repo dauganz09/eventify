@@ -439,7 +439,7 @@ export async function getCumulativeStandings(params: {
 }): Promise<{ rows: GroupStandingRow[] }> {
   const { database, eventId } = params;
 
-  const [[event], groupRows, roundRows, criteriaRows, contestantRows, scoreRows] =
+  const [[event], groupRows, roundRows, criteriaRows, contestantRows, scoreRows, assignmentRows, judgeRows] =
     await Promise.all([
       database
         .select({ config: events.config })
@@ -466,6 +466,18 @@ export async function getCumulativeStandings(params: {
         })
         .from(scoreRecords)
         .where(and(eq(scoreRecords.eventId, eventId), eq(scoreRecords.status, "submitted"))),
+      database
+        .select({
+          judgeId: judgeAssignments.judgeId,
+          roundId: judgeAssignments.roundId,
+          roundGroupId: judgeAssignments.roundGroupId,
+        })
+        .from(judgeAssignments)
+        .where(eq(judgeAssignments.eventId, eventId)),
+      database
+        .select({ id: judges.id, isActive: judges.isActive, isSystem: judges.isSystem })
+        .from(judges)
+        .where(eq(judges.eventId, eventId)),
     ]);
 
   const roundScoreMode = parseRoundScoreMode(
@@ -477,11 +489,40 @@ export async function getCumulativeStandings(params: {
 
   const weightByCriterion = new Map(criteriaRows.map((c) => [c.id, Number(c.weight ?? 100)]));
 
+  // Same judge-assignment scoping as getEventTabulatorDetail's totalsBySet: a
+  // judge reassigned away after scoring shouldn't keep pulling weight in the
+  // cumulative standings that decide who qualifies for the next round.
+  const activeJudgeIds = judgeRows.filter((j) => j.isActive && !j.isSystem).map((j) => j.id);
+  const manualEntryRoundIds = new Set(roundRows.filter((r) => r.isManualEntry).map((r) => r.id));
+  function judgesForSet(setId: string): string[] {
+    const groupId = roundRows.find((r) => r.id === setId)?.roundGroupId ?? null;
+    const ids = new Set<string>();
+    for (const assignment of assignmentRows) {
+      const eventWide = assignment.roundId === null && assignment.roundGroupId === null;
+      const matchesSet = assignment.roundId === setId;
+      const matchesRound = assignment.roundGroupId !== null && assignment.roundGroupId === groupId;
+      if (eventWide || matchesSet || matchesRound) {
+        ids.add(assignment.judgeId);
+      }
+    }
+    if (ids.size === 0) return activeJudgeIds;
+    return Array.from(ids).filter((id) => activeJudgeIds.includes(id));
+  }
+
   // setId -> contestantId -> judge-averaged weighted total (same math as the
   // tabulator detail loader).
   const perJudge = new Map<string, Map<string, Map<string, number>>>();
+  const eligibleJudgesBySet = new Map<string, Set<string>>();
   for (const row of scoreRows) {
     if (row.value === null) continue;
+    if (!manualEntryRoundIds.has(row.roundId)) {
+      let eligible = eligibleJudgesBySet.get(row.roundId);
+      if (eligible === undefined) {
+        eligible = new Set(judgesForSet(row.roundId));
+        eligibleJudgesBySet.set(row.roundId, eligible);
+      }
+      if (!eligible.has(row.judgeId)) continue;
+    }
     const weighted = Number(row.value) * ((weightByCriterion.get(row.criterionId) ?? 100) / 100);
     const byContestant = perJudge.get(row.roundId) ?? new Map();
     const byJudge = byContestant.get(row.contestantId) ?? new Map<string, number>();
