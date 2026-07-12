@@ -15,7 +15,15 @@ export function createCsv<TItem>(items: TItem[], columns: CsvColumn<TItem>[]) {
 }
 
 function escapeCsvValue(value: string | number | boolean | null | undefined) {
-  const stringValue = value === null || value === undefined ? "" : String(value);
+  let stringValue = value === null || value === undefined ? "" : String(value);
+
+  // Neutralize formula injection: a leading =, +, -, or @ makes Excel/Sheets
+  // interpret the cell as a formula when the CSV is opened (a contestant or
+  // judge display name is free text and could start with any of these).
+  if (/^[=+\-@]/.test(stringValue)) {
+    stringValue = `'${stringValue}`;
+  }
+
   if (!/[",\n\r]/.test(stringValue)) return stringValue;
 
   return `"${stringValue.replaceAll('"', '""')}"`;

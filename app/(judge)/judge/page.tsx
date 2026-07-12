@@ -125,7 +125,7 @@ export default async function JudgePage() {
         photoUrl: contestants.photoUrl,
       })
       .from(contestants)
-      .where(and(eq(contestants.eventId, eventId)))
+      .where(and(eq(contestants.eventId, eventId), isNull(contestants.archivedAt)))
       // Order by the contestant number (numeric). Non-numeric / empty numbers
       // sort last, then fall back to position and name.
       .orderBy(

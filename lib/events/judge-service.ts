@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { db } from "@/db";
 import { events, judgeAssignments, judges } from "@/db/schema";
+import { deleteAllJudgeSessions } from "@/lib/auth/judge-session";
 import { hashPassword } from "@/lib/auth/local-session";
 import { assertNoRecordedScores } from "@/lib/events/deletion-guards";
 import { judgeAssignmentSchema, judgeUpsertSchema } from "@/lib/validation/domain";
@@ -72,6 +73,13 @@ export async function upsertJudge(params: {
       .set(updateValues)
       .where(and(eq(judges.id, input.judgeId), eq(judges.eventId, input.eventId)))
       .returning();
+
+    // Deactivating mid-event must take effect immediately, not just on the
+    // judge's next request — a live session left open could otherwise keep
+    // submitting scores under a judge the tabulator just pulled from the panel.
+    if (judge && !judge.isActive) {
+      await deleteAllJudgeSessions(params.database, judge.id);
+    }
 
     return judge ?? null;
   }

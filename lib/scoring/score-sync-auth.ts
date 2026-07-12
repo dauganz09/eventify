@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { judgeSetSubmissions } from "@/db/schema";
+import { judgeSetSubmissions, memberships } from "@/db/schema";
 import { getJudgeSession, JUDGE_SESSION_COOKIE } from "@/lib/auth/judge-session";
+import { hasPermission, type AppRole } from "@/lib/auth/permissions";
 import { getCurrentUser } from "@/lib/auth/session";
 import type { ScoreOperationInput } from "@/lib/validation/domain";
 
@@ -10,8 +11,23 @@ export interface ScoreSyncAuthContext {
   actorUserId: string | null;
   organizationId: string;
   judgeId: string | null;
+  /**
+   * The single event a judge session is bound to (null for a dashboard-user
+   * actor, who isn't scoped to one event). Every operation in the request
+   * must target this event — enforced by the caller.
+   */
+  judgeEventId: string | null;
 }
 
+/**
+ * Resolves who's allowed to submit scores and what they're allowed to submit
+ * as. Two actor types:
+ *  - A dashboard user (owner/admin/tabulator) must actually belong to the
+ *    claimed organization with a role that carries "score.adjust" — the
+ *    org id is client-supplied (a header), so it cannot be trusted on its own.
+ *  - A judge is fully scoped server-side from their session token: which
+ *    judge, which event, which org — none of that is client-supplied.
+ */
 export async function resolveScoreSyncAuth(
   request: Request,
 ): Promise<ScoreSyncAuthContext | null> {
@@ -21,7 +37,20 @@ export async function resolveScoreSyncAuth(
   if (user) {
     const organizationId = request.headers.get("x-organization-id");
     if (!organizationId) return null;
-    return { actorUserId: user.id, organizationId, judgeId: null };
+
+    const membershipRows = await db
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(and(eq(memberships.userId, user.id), eq(memberships.organizationId, organizationId)));
+    if (membershipRows.length === 0) return null;
+
+    const roles = membershipRows.map((row) => row.role as AppRole);
+    const authorized = roles.some((role) =>
+      hasPermission({ userId: user.id, organizationId, roles: [role] }, "score.adjust"),
+    );
+    if (!authorized) return null;
+
+    return { actorUserId: user.id, organizationId, judgeId: null, judgeEventId: null };
   }
 
   const judgeToken = cookieStore.get(JUDGE_SESSION_COOKIE)?.value;
@@ -34,6 +63,7 @@ export async function resolveScoreSyncAuth(
     actorUserId: null,
     organizationId: judgeSession.organizationId,
     judgeId: judgeSession.judgeId,
+    judgeEventId: judgeSession.eventId,
   };
 }
 

@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
 import type { db as DbType } from "@/db";
-import { judgeSessions } from "@/db/schema";
+import { judges, judgeSessions } from "@/db/schema";
 
 export const JUDGE_SESSION_COOKIE = "judge_session";
 const SESSION_DURATION_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -9,6 +9,7 @@ const SESSION_DURATION_SECONDS = 30 * 24 * 60 * 60; // 30 days
 export const judgeSessionCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
   path: "/",
   maxAge: SESSION_DURATION_SECONDS,
 };
@@ -43,12 +44,19 @@ export async function getJudgeSession(
       judgeId: judgeSessions.judgeId,
       eventId: judgeSessions.eventId,
       organizationId: judgeSessions.organizationId,
+      isActive: judges.isActive,
     })
     .from(judgeSessions)
+    .innerJoin(judges, eq(judges.id, judgeSessions.judgeId))
     .where(and(eq(judgeSessions.token, token), gt(judgeSessions.expiresAt, now)))
     .limit(1);
 
-  return row ?? null;
+  // A judge deactivated mid-event (disruptive/replaced/conflict of interest)
+  // must not be able to keep scoring on an already-open session — checked
+  // here, the one choke point every judge request resolves its session through.
+  if (!row || !row.isActive) return null;
+
+  return { judgeId: row.judgeId, eventId: row.eventId, organizationId: row.organizationId };
 }
 
 export async function deleteJudgeSession(

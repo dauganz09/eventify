@@ -631,14 +631,20 @@ export function JudgeWorkspace({
                 className="h-10 gap-1.5 px-4"
                 onClick={() => setConfirmFinalize(true)}
                 disabled={
-                  finalizing || !allScored || outbox.pendingCount > 0 || outbox.isSyncing
+                  finalizing ||
+                  !allScored ||
+                  outbox.pendingCount > 0 ||
+                  outbox.conflictCount > 0 ||
+                  outbox.isSyncing
                 }
                 title={
                   !allScored
                     ? "Score every contestant before you can lock this set"
-                    : outbox.pendingCount > 0 || outbox.isSyncing
-                      ? "Waiting for scores to finish syncing…"
-                      : undefined
+                    : outbox.conflictCount > 0
+                      ? "Resolve the score conflicts below before you can lock this set"
+                      : outbox.pendingCount > 0 || outbox.isSyncing
+                        ? "Waiting for scores to finish syncing…"
+                        : undefined
                 }
               >
                 <Lock className="size-4" />
@@ -804,20 +810,30 @@ export function JudgeWorkspace({
             <p className="text-sm text-muted-foreground">
               {!allScored
                 ? `Score all ${contestants.length} contestants to submit & lock (${completedCount}/${contestants.length} done).`
-                : outbox.pendingCount > 0 || outbox.isSyncing
-                  ? "Waiting for scores to finish syncing before you can lock…"
-                  : "Finished scoring? Submit & lock your scores so they can't be changed."}
+                : outbox.conflictCount > 0
+                  ? "Some scores have conflicts that need to be resolved before you can lock this set."
+                  : outbox.pendingCount > 0 || outbox.isSyncing
+                    ? "Waiting for scores to finish syncing before you can lock…"
+                    : "Finished scoring? Submit & lock your scores so they can't be changed."}
             </p>
             <Button
               className="h-14 gap-2 px-6 text-base font-semibold"
               onClick={() => setConfirmFinalize(true)}
-              disabled={finalizing || !allScored || outbox.pendingCount > 0 || outbox.isSyncing}
+              disabled={
+                finalizing ||
+                !allScored ||
+                outbox.pendingCount > 0 ||
+                outbox.conflictCount > 0 ||
+                outbox.isSyncing
+              }
               title={
                 !allScored
                   ? "Score every contestant before you can lock this set"
-                  : outbox.pendingCount > 0 || outbox.isSyncing
-                    ? "Waiting for scores to finish syncing…"
-                    : undefined
+                  : outbox.conflictCount > 0
+                    ? "Resolve the score conflicts below before you can lock this set"
+                    : outbox.pendingCount > 0 || outbox.isSyncing
+                      ? "Waiting for scores to finish syncing…"
+                      : undefined
               }
             >
               <Lock className="size-5" />

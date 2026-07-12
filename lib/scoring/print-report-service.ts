@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { db } from "@/db";
 import {
   contestants,
@@ -226,7 +226,7 @@ export async function getEventResultsReport(params: {
           displayNumber: contestants.displayNumber,
         })
         .from(contestants)
-        .where(eq(contestants.eventId, eventId))
+        .where(and(eq(contestants.eventId, eventId), isNull(contestants.archivedAt)))
         .orderBy(asc(contestants.displayName)),
       database
         .select({

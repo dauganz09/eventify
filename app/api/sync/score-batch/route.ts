@@ -61,6 +61,8 @@ export async function POST(request: Request) {
     database: db,
     actorUserId: auth.actorUserId,
     organizationId: auth.organizationId,
+    judgeId: auth.judgeId,
+    judgeEventId: auth.judgeEventId,
     inputs: operations,
   });
 

@@ -1,8 +1,10 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { db } from "@/db";
 import {
   auditLogs,
+  contestants,
   criteria,
+  events,
   rounds,
   scoreEvents,
   scoreRecords,
@@ -39,6 +41,10 @@ interface ScoreWriteContext {
   tx: TransactionClient;
   actorUserId: string | null;
   organizationId: string;
+  /** Server-resolved judge identity for a judge-session actor; null for a dashboard-user actor. */
+  judgeId: string | null;
+  /** The one event a judge session is bound to; null for a dashboard-user actor. */
+  judgeEventId: string | null;
   now: Date;
   chainState: { prevHash: string | null };
 }
@@ -47,11 +53,16 @@ function countsTowardAggregates(operation: ScoreOperationInput["operation"]) {
   return operation === "submitted" || operation === "manual_adjustment";
 }
 
+/** A generic "can't accept this" result — kept vague deliberately so a probing client can't use the message to enumerate other orgs'/events' ids. */
+function rejected(now: Date, message: string): { result: ScoreSyncResult } {
+  return { result: { status: "conflict", serverReceivedAt: now.toISOString(), message } };
+}
+
 async function writeScoreOperationInTx(
   ctx: ScoreWriteContext,
   input: ScoreOperationInput,
 ): Promise<{ result: ScoreSyncResult; audit?: PendingAuditEntry }> {
-  const { tx, actorUserId, organizationId, now, chainState } = ctx;
+  const { tx, actorUserId, organizationId, judgeId, judgeEventId, now, chainState } = ctx;
 
   const existingSync = await tx.query.syncOperations.findFirst({
     where: eq(syncOperations.idempotencyKey, input.idempotencyKey),
@@ -61,25 +72,48 @@ async function writeScoreOperationInTx(
     return { result: existingSync.result as unknown as ScoreSyncResult };
   }
 
+  // A judge session may only ever write under its own identity, into the one
+  // event it's bound to — both server-resolved, never trusted from the body.
+  if (judgeId && (input.judgeId !== judgeId || input.eventId !== judgeEventId)) {
+    return rejected(now, "You are not authorized to submit this score.");
+  }
+
+  // The claimed event must actually belong to the caller's organization —
+  // eventId/organizationId both ultimately trace back to client input (a
+  // header for a dashboard actor, the body for eventId), so neither can be
+  // trusted without a lookup.
+  const [event] = await tx
+    .select({ organizationId: events.organizationId })
+    .from(events)
+    .where(eq(events.id, input.eventId))
+    .limit(1);
+  if (!event || event.organizationId !== organizationId) {
+    return rejected(now, "Event not found.");
+  }
+
+  // Row-locked (not a plain SELECT) so this can't race the tabulator's
+  // lock/unlock action: a concurrent UPDATE on this round blocks here until
+  // it commits, and this SELECT then sees the fresh isLocked value.
   const [round] = await tx
-    .select({ isLocked: rounds.isLocked, isManualEntry: rounds.isManualEntry })
+    .select({ eventId: rounds.eventId, isLocked: rounds.isLocked, isManualEntry: rounds.isManualEntry })
     .from(rounds)
     .where(eq(rounds.id, input.roundId))
+    .for("update")
     .limit(1);
 
-  if (round?.isLocked && !round.isManualEntry) {
-    return {
-      result: {
-        status: "conflict",
-        serverReceivedAt: now.toISOString(),
-        message: "Round is locked.",
-      },
-    };
+  if (!round || round.eventId !== input.eventId) {
+    return rejected(now, "Round not found.");
+  }
+
+  if (round.isLocked && !round.isManualEntry) {
+    return rejected(now, "Round is locked.");
   }
 
   const [criterion] = await tx
     .select({
       id: criteria.id,
+      eventId: criteria.eventId,
+      roundId: criteria.roundId,
       minValue: criteria.minValue,
       maxValue: criteria.maxValue,
     })
@@ -87,14 +121,45 @@ async function writeScoreOperationInTx(
     .where(eq(criteria.id, input.criterionId))
     .limit(1);
 
-  if (!criterion) {
-    return {
-      result: {
-        status: "conflict",
-        serverReceivedAt: now.toISOString(),
-        message: "Criterion no longer exists.",
-      },
-    };
+  if (!criterion || criterion.eventId !== input.eventId || criterion.roundId !== input.roundId) {
+    return rejected(now, "Criterion no longer exists.");
+  }
+
+  const min = criterion.minValue === null ? null : Number(criterion.minValue);
+  const max = criterion.maxValue === null ? null : Number(criterion.maxValue);
+  if (Number.isNaN(input.value) || (min !== null && input.value < min) || (max !== null && input.value > max)) {
+    return rejected(now, "Score is outside the allowed range for this criterion.");
+  }
+
+  const [contestant] = await tx
+    .select({ eventId: contestants.eventId })
+    .from(contestants)
+    .where(and(eq(contestants.id, input.contestantId), isNull(contestants.archivedAt)))
+    .limit(1);
+  if (!contestant || contestant.eventId !== input.eventId) {
+    return rejected(now, "Contestant not found.");
+  }
+
+  // Reject an out-of-order replay: if a newer edit for this exact score cell
+  // already landed (e.g. a device queued offline while a different device
+  // scored the same cell and came back online later), don't let the stale
+  // value silently win over the newer one.
+  const [latestEvent] = await tx
+    .select({ clientCreatedAt: scoreEvents.clientCreatedAt })
+    .from(scoreEvents)
+    .where(
+      and(
+        eq(scoreEvents.roundId, input.roundId),
+        eq(scoreEvents.contestantId, input.contestantId),
+        eq(scoreEvents.judgeId, input.judgeId),
+        eq(scoreEvents.criterionId, input.criterionId),
+      ),
+    )
+    .orderBy(desc(scoreEvents.clientCreatedAt))
+    .limit(1);
+  const incomingClientCreatedAt = new Date(input.clientCreatedAt);
+  if (latestEvent && latestEvent.clientCreatedAt >= incomingClientCreatedAt) {
+    return rejected(now, "A newer edit for this score already exists.");
   }
 
   const [existingScore] = await tx
@@ -281,6 +346,8 @@ export async function submitScoreOperation(params: {
   database: typeof db;
   actorUserId: string | null;
   organizationId: string;
+  judgeId?: string | null;
+  judgeEventId?: string | null;
   input: ScoreOperationInput;
 }): Promise<ScoreSyncResult> {
   const input = scoreOperationSchema.parse(params.input);
@@ -302,6 +369,8 @@ export async function submitScoreOperation(params: {
         tx,
         actorUserId: params.actorUserId,
         organizationId: params.organizationId,
+        judgeId: params.judgeId ?? null,
+        judgeEventId: params.judgeEventId ?? null,
         now,
         chainState: { prevHash: chainHead?.hash ?? null },
       },
@@ -333,6 +402,8 @@ export async function submitScoreBatch(params: {
   database: typeof db;
   actorUserId: string | null;
   organizationId: string;
+  judgeId?: string | null;
+  judgeEventId?: string | null;
   inputs: ScoreOperationInput[];
 }): Promise<ScoreBatchItemResult[]> {
   const inputs = params.inputs.map((input) => scoreOperationSchema.parse(input));
@@ -367,6 +438,8 @@ export async function submitScoreBatch(params: {
           tx,
           actorUserId: params.actorUserId,
           organizationId: params.organizationId,
+          judgeId: params.judgeId ?? null,
+          judgeEventId: params.judgeEventId ?? null,
           now,
           chainState,
         },
